@@ -1,8 +1,6 @@
 import 'isomorphic-fetch';
 import { BN } from 'ethereumjs-util';
 import nock from 'nock';
-import HttpProvider from 'ethjs-provider-http';
-import EthQuery from 'eth-query';
 import * as util from './util';
 import {
   Transaction,
@@ -19,50 +17,6 @@ const MAX_PRIORITY_FEE_PER_GAS = 'maxPriorityFeePerGas';
 const GAS_PRICE = 'gasPrice';
 const FAIL = 'lol';
 const PASS = '0x1';
-
-const mockFlags: { [key: string]: any } = {
-  estimateGas: null,
-  gasPrice: null,
-};
-const PROVIDER = new HttpProvider(
-  'https://ropsten.infura.io/v3/341eacb578dd44a1a049cbc5f6fd4035',
-);
-
-jest.mock('eth-query', () =>
-  jest.fn().mockImplementation(() => {
-    return {
-      estimateGas: (_transaction: any, callback: any) => {
-        callback(undefined, '0x0');
-      },
-      gasPrice: (callback: any) => {
-        if (mockFlags.gasPrice) {
-          callback(new Error(mockFlags.gasPrice));
-          return;
-        }
-        callback(undefined, '0x0');
-      },
-      getBlockByNumber: (
-        _blocknumber: any,
-        _fetchTxs: boolean,
-        callback: any,
-      ) => {
-        callback(undefined, { gasLimit: '0x0' });
-      },
-      getCode: (_to: any, callback: any) => {
-        callback(undefined, '0x0');
-      },
-      getTransactionByHash: (_hash: any, callback: any) => {
-        callback(undefined, { blockNumber: '0x1' });
-      },
-      getTransactionCount: (_from: any, _to: any, callback: any) => {
-        callback(undefined, '0x0');
-      },
-      sendRawTransaction: (_transaction: any, callback: any) => {
-        callback(undefined, '1337');
-      },
-    };
-  }),
-);
 
 describe('util', () => {
   beforeEach(() => {
@@ -931,18 +885,52 @@ describe('util', () => {
   });
 
   describe('query', () => {
-    it('should query and resolve', async () => {
-      const ethQuery = new EthQuery(PROVIDER);
-      const gasPrice = await util.query(ethQuery, 'gasPrice', []);
-      expect(gasPrice).toStrictEqual('0x0');
+    describe('when the given method exists directly on the EthQuery', () => {
+      it('should call the method on the EthQuery and, if it is successful, return a promise that resolves to the result', async () => {
+        const ethQuery = {
+          getBlockByHash: (blockId: any, cb: any) => cb(null, { id: blockId }),
+        };
+        const result = await util.query(ethQuery, 'getBlockByHash', ['0x1234']);
+        expect(result).toStrictEqual({ id: '0x1234' });
+      });
+
+      it('should call the method on the EthQuery and, if it errors, return a promise that is rejected with the error', async () => {
+        const ethQuery = {
+          getBlockByHash: (_blockId: any, cb: any) =>
+            cb(new Error('uh oh'), null),
+        };
+        await expect(
+          util.query(ethQuery, 'getBlockByHash', ['0x1234']),
+        ).rejects.toThrow('uh oh');
+      });
     });
 
-    it('should query and reject if error', async () => {
-      const ethQuery = new EthQuery(PROVIDER);
-      mockFlags.gasPrice = 'Uh oh';
-      await expect(util.query(ethQuery, 'gasPrice', [])).rejects.toThrow(
-        'Uh oh',
-      );
+    describe('when the given method does not exist directly on the EthQuery', () => {
+      it('should use sendAsync to call the RPC endpoint and, if it is successful, return a promise that resolves to the result', async () => {
+        const ethQuery = {
+          sendAsync: ({ method, params }: any, cb: any) => {
+            if (method === 'eth_getBlockByHash') {
+              return cb(null, { id: params[0] });
+            }
+            throw new Error(`Unsupported method ${method}`);
+          },
+        };
+        const result = await util.query(ethQuery, 'eth_getBlockByHash', [
+          '0x1234',
+        ]);
+        expect(result).toStrictEqual({ id: '0x1234' });
+      });
+
+      it('should use sendAsync to call the RPC endpoint and, if it errors, return a promise that is rejected with the error', async () => {
+        const ethQuery = {
+          sendAsync: (_args: any, cb: any) => {
+            cb(new Error('uh oh'), null);
+          },
+        };
+        await expect(
+          util.query(ethQuery, 'eth_getBlockByHash', ['0x1234']),
+        ).rejects.toThrow('uh oh');
+      });
     });
   });
 
@@ -1062,6 +1050,78 @@ describe('util', () => {
       expect(() =>
         util.validateMinimumIncrease('0x7162a5ca', '0x5916a6d6'),
       ).not.toThrow(Error);
+    });
+  });
+
+  describe('zipEqualSizedTuples', () => {
+    it('should return an array composed of the columns across all tuples', () => {
+      expect(
+        util.zipEqualSizedTuples({
+          tuples: [
+            [1, 'a', 'A'],
+            [2, 'b', 'B'],
+            [3, 'c', 'C'],
+            [4, 'd', 'D'],
+          ],
+          numberOfColumnsPerTuple: 3,
+        }),
+      ).toStrictEqual([
+        [1, 2, 3, 4],
+        ['a', 'b', 'c', 'd'],
+        ['A', 'B', 'C', 'D'],
+      ]);
+    });
+
+    it('should chop off columns in rows whose length exceeds the given number of columns', () => {
+      expect(
+        util.zipEqualSizedTuples({
+          tuples: [
+            [1, 'a', 'A'],
+            [2, 'b', 'B'],
+            [3, 'c', 'C', 'x'],
+            [4, 'd', 'D'],
+          ],
+          numberOfColumnsPerTuple: 3,
+        }),
+      ).toStrictEqual([
+        [1, 2, 3, 4],
+        ['a', 'b', 'c', 'd'],
+        ['A', 'B', 'C', 'D'],
+      ]);
+    });
+
+    it('should use undefined to represent values in rows whose length falls short of the given number of columns', () => {
+      expect(
+        util.zipEqualSizedTuples({
+          tuples: [
+            [1, 'a', 'A'],
+            [2, 'b', 'B'],
+            [3, 'c', 'C', 'x'],
+            [4, 'd', 'D'],
+          ],
+          numberOfColumnsPerTuple: 4,
+        }),
+      ).toStrictEqual([
+        [1, 2, 3, 4],
+        ['a', 'b', 'c', 'd'],
+        ['A', 'B', 'C', 'D'],
+        [undefined, undefined, 'x', undefined],
+      ]);
+    });
+
+    it('should return an empty array given an empty array', () => {
+      expect(
+        util.zipEqualSizedTuples({ tuples: [], numberOfColumnsPerTuple: 3 }),
+      ).toStrictEqual([]);
+    });
+
+    it('should return empty arrays given empty arrays', () => {
+      expect(
+        util.zipEqualSizedTuples({
+          tuples: [[], []],
+          numberOfColumnsPerTuple: 3,
+        }),
+      ).toStrictEqual([[], []]);
     });
   });
 });

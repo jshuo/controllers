@@ -687,13 +687,19 @@ export function query(
   args: any[] = [],
 ): Promise<any> {
   return new Promise((resolve, reject) => {
-    ethQuery[method](...args, (error: Error, result: any) => {
+    const cb = (error: Error, result: any) => {
       if (error) {
         reject(error);
         return;
       }
       resolve(result);
-    });
+    };
+
+    if (typeof ethQuery[method] === 'function') {
+      ethQuery[method](...args, cb);
+    } else {
+      ethQuery.sendAsync({ method, params: args }, cb);
+    }
   });
 }
 
@@ -766,4 +772,50 @@ export function validateMinimumIncrease(proposed: string, min: string) {
   }
   const errorMsg = `The proposed value: ${proposedDecimal} should meet or exceed the minimum value: ${minDecimal}`;
   throw new Error(errorMsg);
+}
+
+/**
+ * Rotates a matrix. That is, takes an array of tuples (arrays) representing rows and columns and
+ * reorients that array such that rows becomes columns and vice versa. Each row is expected to have
+ * the same number of columns, although if that is not the case, then the final result will have the
+ * same number of columns per row, where values may be filled in with undefined.
+ *
+ * @param args - The arguments.
+ * @param args.tuples - The tuples on which we want to operate.
+ * @param args.numberOfColumnsPerTuple - The number of columns you expected each row to have.
+ * @returns The rotated array of arrays.
+ */
+export function zipEqualSizedTuples({
+  tuples,
+  numberOfColumnsPerTuple,
+}: {
+  tuples: any[];
+  numberOfColumnsPerTuple: number;
+}): any[] {
+  if (tuples.length > 0) {
+    if (tuples.every((tuple) => tuple.length > 0)) {
+      const finalTuple = [];
+      for (let i = 0; i < numberOfColumnsPerTuple; i++) {
+        finalTuple.push(tuples.map((tuple) => tuple[i]));
+      }
+      return finalTuple;
+    }
+
+    return tuples;
+  }
+
+  return [];
+}
+
+/**
+ * Returns whether a value is a number. This is useful when filtering out non-numeric values from an
+ * array so that the array can be sorted appropriately. The 'value is number' is key here to ensure
+ * that the result from `filter` is guaranteed to contain numbers as TypeScript is not smart enough
+ * to figure this out from analysis alone.
+ *
+ * @param value - The value.
+ * @returns Whether the value is a number.
+ */
+export function isNumber(value: number | undefined): value is number {
+  return value !== undefined && Number.isFinite(value);
 }

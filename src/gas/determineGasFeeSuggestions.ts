@@ -21,6 +21,8 @@ import {
  * API.
  * @param args.fetchGasEstimatesUrl - The URL for the API we can use to obtain EIP-1559-specific
  * estimates.
+ * @param args.fetchGasEstimatesViaEthFeeHistory - A function that fetches gas estimates using
+ * `eth_feeHistory` (an EIP-1559 feature).
  * @param args.fetchLegacyGasPriceEstimates - A function that fetches gas estimates using an
  * non-EIP-1559-specific API.
  * @param args.fetchLegacyGasPriceEstimatesUrl - The URL for the API we can use to obtain
@@ -37,6 +39,7 @@ export default async function determineGasFeeSuggestions({
   isLegacyGasAPICompatible,
   fetchGasEstimates,
   fetchGasEstimatesUrl,
+  fetchGasEstimatesViaEthFeeHistory,
   fetchLegacyGasPriceEstimates,
   fetchLegacyGasPriceEstimatesUrl,
   fetchEthGasPriceEstimate,
@@ -51,6 +54,9 @@ export default async function determineGasFeeSuggestions({
     clientId?: string,
   ) => Promise<GasFeeEstimates>;
   fetchGasEstimatesUrl: string;
+  fetchGasEstimatesViaEthFeeHistory: (
+    ethQuery: any,
+  ) => Promise<GasFeeEstimates>;
   fetchLegacyGasPriceEstimates: (
     url: string,
     clientId?: string,
@@ -69,7 +75,12 @@ export default async function determineGasFeeSuggestions({
 
   if (isEIP1559Compatible) {
     strategies.push(async () => {
-      const estimates = await fetchGasEstimates(fetchGasEstimatesUrl, clientId);
+      let estimates: GasFeeEstimates;
+      try {
+        estimates = await fetchGasEstimates(fetchGasEstimatesUrl, clientId);
+      } catch {
+        estimates = await fetchGasEstimatesViaEthFeeHistory(ethQuery);
+      }
       const {
         suggestedMaxPriorityFeePerGas,
         suggestedMaxFeePerGas,

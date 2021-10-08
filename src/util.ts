@@ -687,13 +687,19 @@ export function query(
   args: any[] = [],
 ): Promise<any> {
   return new Promise((resolve, reject) => {
-    ethQuery[method](...args, (error: Error, result: any) => {
+    const cb = (error: Error, result: any) => {
       if (error) {
         reject(error);
         return;
       }
       resolve(result);
-    });
+    };
+
+    if (typeof ethQuery[method] === 'function') {
+      ethQuery[method](...args, cb);
+    } else {
+      ethQuery.sendAsync({ method, params: args }, cb);
+    }
   });
 }
 

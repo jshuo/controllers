@@ -83,12 +83,17 @@ function buildMockDataForCalculateTimeEstimate(): EstimatedGasFeeTimeBounds {
 describe('determineGasFeeSuggestions', () => {
   let options: any;
   let fetchGasEstimates: jest.SpyInstance<any>;
+  let fetchGasEstimatesViaEthFeeHistory: jest.SpyInstance<any>;
   let calculateTimeEstimate: jest.SpyInstance<any>;
   let fetchLegacyGasPriceEstimates: jest.SpyInstance<any>;
   let fetchEthGasPriceEstimate: jest.SpyInstance<any>;
 
   beforeEach(() => {
     fetchGasEstimates = jest
+      .fn()
+      .mockResolvedValue(buildMockDataForFetchGasEstimates());
+
+    fetchGasEstimatesViaEthFeeHistory = jest
       .fn()
       .mockResolvedValue(buildMockDataForFetchGasEstimates());
 
@@ -112,6 +117,7 @@ describe('determineGasFeeSuggestions', () => {
         isLegacyGasAPICompatible: false,
         fetchGasEstimates,
         fetchGasEstimatesUrl: 'http://some-fetch-gas-estimates-url',
+        fetchGasEstimatesViaEthFeeHistory,
         fetchLegacyGasPriceEstimates,
         fetchLegacyGasPriceEstimatesUrl: 'http://doesnt-matter',
         fetchEthGasPriceEstimate,
@@ -145,32 +151,94 @@ describe('determineGasFeeSuggestions', () => {
         });
       });
 
-      describe('assuming fetchEthGasPriceEstimate does not throw an error', () => {
-        it('returns the fetched fee estimates and an empty set of time estimates', async () => {
-          const gasFeeEstimates = buildMockDataForFetchEthGasPriceEstimate();
-          fetchEthGasPriceEstimate.mockResolvedValue(gasFeeEstimates);
+      describe('assuming neither fetchGasEstimatesViaEthFeeHistory nor calculateTimeEstimate throws errors', () => {
+        it('returns a combination of the fetched fee and time estimates', async () => {
+          const gasFeeEstimates = buildMockDataForFetchGasEstimates();
+          fetchGasEstimatesViaEthFeeHistory.mockResolvedValue(gasFeeEstimates);
+          const estimatedGasFeeTimeBounds = buildMockDataForCalculateTimeEstimate();
+          calculateTimeEstimate.mockReturnValue(estimatedGasFeeTimeBounds);
 
           const gasFeeSuggestions = await determineGasFeeSuggestions(options);
 
           expect(gasFeeSuggestions).toStrictEqual({
             gasFeeEstimates,
-            estimatedGasFeeTimeBounds: {},
-            gasEstimateType: 'eth_gasPrice',
+            estimatedGasFeeTimeBounds,
+            gasEstimateType: 'fee-market',
           });
         });
       });
 
-      describe('when fetchEthGasPriceEstimate throws an error', () => {
-        it('throws an error that wraps that error', async () => {
-          fetchEthGasPriceEstimate.mockImplementation(() => {
-            throw new Error('fetchEthGasPriceEstimate failed');
+      describe('when fetchGasEstimatesViaEthFeeHistory throws an error', () => {
+        beforeEach(() => {
+          fetchGasEstimatesViaEthFeeHistory.mockImplementation(() => {
+            throw new Error('Some API failure');
           });
+        });
 
-          const promise = determineGasFeeSuggestions(options);
+        describe('assuming fetchEthGasPriceEstimate does not throw an error', () => {
+          it('returns the fetched fee estimates and an empty set of time estimates', async () => {
+            const gasFeeEstimates = buildMockDataForFetchEthGasPriceEstimate();
+            fetchEthGasPriceEstimate.mockResolvedValue(gasFeeEstimates);
 
-          await expect(promise).rejects.toThrow(
-            'Could not generate gas fee suggestions: fetchEthGasPriceEstimate failed',
-          );
+            const gasFeeSuggestions = await determineGasFeeSuggestions(options);
+
+            expect(gasFeeSuggestions).toStrictEqual({
+              gasFeeEstimates,
+              estimatedGasFeeTimeBounds: {},
+              gasEstimateType: 'eth_gasPrice',
+            });
+          });
+        });
+
+        describe('when fetchEthGasPriceEstimate throws an error', () => {
+          it('throws an error that wraps that error', async () => {
+            fetchEthGasPriceEstimate.mockImplementation(() => {
+              throw new Error('fetchEthGasPriceEstimate failed');
+            });
+
+            const promise = determineGasFeeSuggestions(options);
+
+            await expect(promise).rejects.toThrow(
+              'Could not generate gas fee suggestions: fetchEthGasPriceEstimate failed',
+            );
+          });
+        });
+      });
+
+      describe('when fetchGasEstimatesViaEthFeeHistory does not throw an error, but calculateTimeEstimate throws an error', () => {
+        beforeEach(() => {
+          calculateTimeEstimate.mockImplementation(() => {
+            throw new Error('Some API failure');
+          });
+        });
+
+        describe('assuming fetchEthGasPriceEstimate does not throw an error', () => {
+          it('returns the fetched fee estimates and an empty set of time estimates', async () => {
+            const gasFeeEstimates = buildMockDataForFetchEthGasPriceEstimate();
+            fetchEthGasPriceEstimate.mockResolvedValue(gasFeeEstimates);
+
+            const gasFeeSuggestions = await determineGasFeeSuggestions(options);
+
+            expect(gasFeeSuggestions).toStrictEqual({
+              gasFeeEstimates,
+              estimatedGasFeeTimeBounds: {},
+              gasEstimateType: 'eth_gasPrice',
+            });
+          });
+        });
+
+        describe('when fetchEthGasPriceEstimate throws an error', () => {
+          it('throws an error that wraps that error', async () => {
+            fetchEthGasPriceEstimate.mockImplementation(() => {
+              throw new Error('fetchEthGasPriceEstimate failed');
+            });
+
+            const promise = determineGasFeeSuggestions(options);
+
+            await expect(promise).rejects.toThrow(
+              'Could not generate gas fee suggestions: fetchEthGasPriceEstimate failed',
+            );
+          });
         });
       });
     });

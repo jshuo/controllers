@@ -145,16 +145,16 @@ export default async function fetchFeeHistory<Percentile extends number>({
     const blocks = baseFeesPerGasAsHex.map((baseFeePerGasAsHex, blockIndex) => {
       const baseFeePerGas = hexToDec(baseFeePerGasAsHex);
       const gasUsedRatio = gasUsedRatios[blockIndex];
-      const priorityFeesPerPercentile = priorityFeePercentileGroups[blockIndex];
+      const priorityFeesForEachPercentile =
+        priorityFeePercentileGroups[blockIndex];
 
-      const priorityFeesByPercentile: Record<Percentile, number> = {} as Record<
-        Percentile,
-        number
-      >;
-      percentiles.forEach((percentile, percentileIndex) => {
-        const priorityFee = priorityFeesPerPercentile[percentileIndex];
-        priorityFeesByPercentile[percentile] = hexToDec(priorityFee);
-      });
+      const priorityFeesByPercentile = percentiles.reduce(
+        (obj, percentile, percentileIndex) => {
+          const priorityFee = priorityFeesForEachPercentile[percentileIndex];
+          return { ...obj, [percentile]: hexToDec(priorityFee) };
+        },
+        {} as Record<Percentile, number>,
+      );
 
       return {
         baseFeePerGas,

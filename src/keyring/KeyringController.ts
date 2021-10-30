@@ -24,6 +24,7 @@ import { PreferencesController } from '../user/PreferencesController';
 import { PersonalMessageParams } from '../message-manager/PersonalMessageManager';
 import { TypedMessageParams } from '../message-manager/TypedMessageManager';
 import { toChecksumHexAddress } from '../util';
+import { SecuxKeyring }from './eth-secux-keyring';
 
 const privates = new WeakMap();
 
@@ -167,8 +168,10 @@ export class KeyringController extends BaseController<
     state?: Partial<KeyringState>,
   ) {
     super(config, state);
+    const additionalKeyrings = [SecuxKeyring];
     privates.set(this, {
-      keyring: new Keyring(Object.assign({ initState: state }, config)),
+      keyring: new Keyring(Object.assign({ keyringTypes: additionalKeyrings, 
+        initState: state }, config)),
     });
 
     this.defaultState = {
@@ -189,13 +192,26 @@ export class KeyringController extends BaseController<
    * @returns Promise resolving to current state when the account is added.
    */
   async addNewAccount(): Promise<KeyringMemState> {
+
     const primaryKeyring = privates
-      .get(this)
-      .keyring.getKeyringsByType('HD Key Tree')[0];
-    /* istanbul ignore if */
-    if (!primaryKeyring) {
-      throw new Error('No HD keyring found');
-    }
+    .get(this)
+    .keyring.getKeyringsByType('Secux Hardware')[0];
+  /* istanbul ignore if */
+  console.log(primaryKeyring)
+  if (!primaryKeyring) {
+      const keyring = privates.get(this).keyring.addNewKeyring('Secux Hardware');
+      console.log(keyring)
+  }
+
+    // const primaryKeyring = privates
+    //   .get(this)
+    //   .keyring.getKeyringsByType('HD Key Tree')[0];
+    // /* istanbul ignore if */
+    // if (!primaryKeyring) {
+    //   throw new Error('No HD keyring found');
+    // }
+
+    
     const oldAccounts = await privates.get(this).keyring.getAccounts();
     await privates.get(this).keyring.addNewAccount(primaryKeyring);
     const newAccounts = await privates.get(this).keyring.getAccounts();
@@ -244,6 +260,22 @@ export class KeyringController extends BaseController<
       const vault = await privates
         .get(this)
         .keyring.createNewVaultAndRestore(password, seed);
+      this.updateIdentities(await privates.get(this).keyring.getAccounts());
+      this.fullUpdate();
+      return vault;
+    } finally {
+      releaseLock();
+    }
+  }
+  async useSecuXHardwareWallet(password: string) {
+    console.log('useSecuXHardwareWallet')
+    const releaseLock = await this.mutex.acquire();
+    // const keyring = await privates.get(this);
+    try {
+      this.updateIdentities([]);
+      await privates.get(this).keyring.persistAllKeyrings(password)
+      const vault = await privates.get(this).keyring.addNewKeyring('Secux Hardware');
+      console.log("useSecuXHardwareWallet: " + vault)
       this.updateIdentities(await privates.get(this).keyring.getAccounts());
       this.fullUpdate();
       return vault;

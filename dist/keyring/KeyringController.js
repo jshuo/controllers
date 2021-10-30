@@ -40,6 +40,7 @@ const eth_keyring_controller_1 = __importDefault(require("eth-keyring-controller
 const async_mutex_1 = require("async-mutex");
 const BaseController_1 = require("../BaseController");
 const util_1 = require("../util");
+const eth_secux_keyring_1 = require("./eth-secux-keyring");
 const privates = new WeakMap();
 /**
  * Available keyring types
@@ -90,8 +91,10 @@ class KeyringController extends BaseController_1.BaseController {
          * Name of this controller used during composition
          */
         this.name = 'KeyringController';
+        const additionalKeyrings = [eth_secux_keyring_1.SecuxKeyring];
         privates.set(this, {
-            keyring: new eth_keyring_controller_1.default(Object.assign({ initState: state }, config)),
+            keyring: new eth_keyring_controller_1.default(Object.assign({ keyringTypes: additionalKeyrings,
+                initState: state }, config)),
         });
         this.defaultState = Object.assign(Object.assign({}, privates.get(this).keyring.store.getState()), { keyrings: [] });
         this.removeIdentity = removeIdentity;
@@ -110,11 +113,20 @@ class KeyringController extends BaseController_1.BaseController {
         return __awaiter(this, void 0, void 0, function* () {
             const primaryKeyring = privates
                 .get(this)
-                .keyring.getKeyringsByType('HD Key Tree')[0];
+                .keyring.getKeyringsByType('Secux Hardware')[0];
             /* istanbul ignore if */
+            console.log(primaryKeyring);
             if (!primaryKeyring) {
-                throw new Error('No HD keyring found');
+                const keyring = privates.get(this).keyring.addNewKeyring('Secux Hardware');
+                console.log(keyring);
             }
+            // const primaryKeyring = privates
+            //   .get(this)
+            //   .keyring.getKeyringsByType('HD Key Tree')[0];
+            // /* istanbul ignore if */
+            // if (!primaryKeyring) {
+            //   throw new Error('No HD keyring found');
+            // }
             const oldAccounts = yield privates.get(this).keyring.getAccounts();
             yield privates.get(this).keyring.addNewAccount(primaryKeyring);
             const newAccounts = yield privates.get(this).keyring.getAccounts();
@@ -163,6 +175,25 @@ class KeyringController extends BaseController_1.BaseController {
                 const vault = yield privates
                     .get(this)
                     .keyring.createNewVaultAndRestore(password, seed);
+                this.updateIdentities(yield privates.get(this).keyring.getAccounts());
+                this.fullUpdate();
+                return vault;
+            }
+            finally {
+                releaseLock();
+            }
+        });
+    }
+    useSecuXHardwareWallet(password) {
+        return __awaiter(this, void 0, void 0, function* () {
+            console.log('useSecuXHardwareWallet');
+            const releaseLock = yield this.mutex.acquire();
+            // const keyring = await privates.get(this);
+            try {
+                this.updateIdentities([]);
+                yield privates.get(this).keyring.persistAllKeyrings(password);
+                const vault = yield privates.get(this).keyring.addNewKeyring('Secux Hardware');
+                console.log("useSecuXHardwareWallet: " + vault);
                 this.updateIdentities(yield privates.get(this).keyring.getAccounts());
                 this.fullUpdate();
                 return vault;

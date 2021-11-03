@@ -170,21 +170,22 @@ export class SecuxKeyring extends EventEmitter {
 
   // tx is an instance of the ethereumjs-transaction class.
   signTransaction(address, tx) {
-    const privKeyStr = "df0bca5a38585f82036736aac53a5517392118795e96d243eb9356a899b144de"
-    const privKey = Buffer.from(privKeyStr, 'hex')
-    const msgHash = tx.hash(false)
-    console.log(msgHash.toString('hex'))
-    tx.sign(privKey)
-    const { v, r, s } = ethUtil.ecsign(msgHash, privKey)
-    tx.r = Buffer.from(r, 'hex');
-    tx.s = Buffer.from(s, 'hex');
-    let txv;
-    if (tx._chainId > 0) {
-      txv = v + tx._chainId * 2 + 8;
-    }
-    tx.v = Buffer.from(new Uint8Array([txv]), 'hex');
+    // const privKeyStr = "df0bca5a38585f82036736aac53a5517392118795e96d243eb9356a899b144de"
+    // const privKey = Buffer.from(privKeyStr, 'hex')
+    // const msgHash = tx.getMessageToSign(true)
+    // console.log(msgHash.toString('hex'))
+    // const signedTx = tx.sign(privKey)
+    // // Newer versions of Ethereumjs-tx are immutable and return a new tx object
+    // return Promise.resolve(signedTx === undefined ? tx : signedTx)
+    // const { v, r, s } = ethUtil.ecsign(msgHash, privKey)
+    // tx.r = Buffer.from(r, 'hex');
+    // tx.s = Buffer.from(s, 'hex');
+    // let txv;
+    // if (tx.chainId > 0) {
+    //   txv = v + tx.chainId * 2 + 8;
+    // }
+    // tx.v = Buffer.from(new Uint8Array([txv]), 'hex');
     // Newer versions of Ethereumjs-tx are immutable and return a new tx object
-    return Promise.resolve(tx)
 
     // transactions built with older versions of ethereumjs-tx have a
     // getChainId method that newer versions do not. Older versions are mutable

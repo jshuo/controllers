@@ -24,6 +24,7 @@ export class SecuxKeyring extends EventEmitter {
     this.perPage = 5;
     this.unlockedAccount = 0;
     this.paths = {};
+    this.device = opts.device
     this.deserialize(opts);
     // SecuxConnect.manifest(Secux_CONNECT_MANIFEST);
   }
@@ -250,7 +251,7 @@ export class SecuxKeyring extends EventEmitter {
       // const status = await this.unlock();
       // await wait(status === 'just unlocked' ? DELAY_BETWEEN_POPUPS : 0);
       console.log('eth-secux-keyring')
-      const response = await SecuxConnect.ethereumSignTransaction({
+      const response = await this.device.ethereumSignTransaction({
         path: this._pathFromAddress(address),
         transaction: {
           to: this._normalize(tx.to),

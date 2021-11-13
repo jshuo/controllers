@@ -7,6 +7,7 @@ export class SecuxKeyring extends EventEmitter {
     perPage: number;
     unlockedAccount: number;
     paths: {};
+    device: any;
     serialize(): Promise<{
         hdPath: any;
         accounts: any[];

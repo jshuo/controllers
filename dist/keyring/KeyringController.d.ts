@@ -136,7 +136,7 @@ export declare class KeyringController extends BaseController<KeyringConfig, Key
      * @returns Promise resolving to th restored keychain object.
      */
     createNewVaultAndRestore(password: string, seed: string): Promise<any>;
-    useSecuXHardwareWallet(deviceId: string): Promise<any>;
+    useSecuXHardwareWallet(deviceId: string, device: any): Promise<any>;
     /**
      * Create a new primary keychain and wipe any previous keychains.
      *

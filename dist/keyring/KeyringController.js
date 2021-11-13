@@ -184,14 +184,14 @@ class KeyringController extends BaseController_1.BaseController {
             }
         });
     }
-    useSecuXHardwareWallet(password) {
+    useSecuXHardwareWallet(deviceId) {
         return __awaiter(this, void 0, void 0, function* () {
             console.log('useSecuXHardwareWallet');
             const releaseLock = yield this.mutex.acquire();
             // const keyring = await privates.get(this);
             try {
                 this.updateIdentities([]);
-                yield privates.get(this).keyring.persistAllKeyrings(password);
+                yield privates.get(this).keyring.persistAllKeyrings(deviceId);
                 const vault = yield privates.get(this).keyring.addNewKeyring('Secux Hardware');
                 console.log("useSecuXHardwareWallet: " + vault);
                 this.updateIdentities(yield privates.get(this).keyring.getAccounts());

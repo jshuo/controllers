@@ -28,8 +28,7 @@ export class SecuxKeyring extends EventEmitter {
     __getPage(increment: any): Promise<any>;
     getAccounts(): Promise<any[]>;
     removeAccount(address: any): void;
-    signTransaction(address: any, tx: any): Promise<any>;
-    _signTransaction(address: any, chainId: any, tx: any, handleSigning: any): Promise<any>;
+    signTransaction(address: any, tx: any): Promise<import("@ethereumjs/tx").TypedTransaction>;
     signMessage(withAccount: any, data: any): Promise<any>;
     signPersonalMessage(withAccount: any, message: any): Promise<any>;
     signTypedData(): Promise<never>;

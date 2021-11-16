@@ -1,10 +1,10 @@
 const { EventEmitter } = require('events');
 const ethUtil = require('ethereumjs-util');
 // const HDKey = require('hdkey');
-const SecuxConnect = null;
 const { TransactionFactory } = require('@ethereumjs/tx');
-
-const hdPathString = `m/44'/60'/0'/0`;
+const { SecuxTransactionTool } = require("@secux/protocol-transaction");
+const { SecuxETH } = require("@secux/app-eth");
+const hdPathString = `m/44'/60'/0'/0/0`;
 const keyringType = 'Secux Hardware';
 const pathBase = 'm';
 const MAX_INDEX = 1000;
@@ -26,7 +26,6 @@ export class SecuxKeyring extends EventEmitter {
     this.paths = {};
     this.device = opts.device
     this.deserialize(opts);
-    // SecuxConnect.manifest(Secux_CONNECT_MANIFEST);
   }
 
   serialize() {
@@ -57,10 +56,7 @@ export class SecuxKeyring extends EventEmitter {
       return Promise.resolve('already unlocked');
     }
     return new Promise((resolve, reject) => {
-      SecuxConnect.getPublicKey({
-        path: this.hdPath,
-        coin: 'ETH',
-      })
+      this.device.getXPublickey(this.hdPath)
         .then((response) => {
           if (response.success) {
             this.hdk.publicKey = Buffer.from(response.payload.publicKey, 'hex');
@@ -151,9 +147,10 @@ export class SecuxKeyring extends EventEmitter {
     });
   }
 
-  getAccounts() {
-    this.accounts = ["0xfc10126e2f41cbb264bceee6c6093133aa45f317"];
-    console.log( this.accounts.slice())
+  async getAccounts() {
+    const address = await SecuxETH.getAddress(this.device, this.hdPath);
+    this.accounts = [address];
+    console.log(this.accounts.slice())
     // return this.accounts.slice()
     return Promise.resolve(this.accounts.slice());
   }
@@ -170,120 +167,36 @@ export class SecuxKeyring extends EventEmitter {
   }
 
   // tx is an instance of the ethereumjs-transaction class.
-  signTransaction(address, tx) {
-    // const privKeyStr = "df0bca5a38585f82036736aac53a5517392118795e96d243eb9356a899b144de"
-    // const privKey = Buffer.from(privKeyStr, 'hex')
-    // const msgHash = tx.getMessageToSign(true)
-    // console.log(msgHash.toString('hex'))
-    // const signedTx = tx.sign(privKey)
-    // // Newer versions of Ethereumjs-tx are immutable and return a new tx object
-    // return Promise.resolve(signedTx === undefined ? tx : signedTx)
-    // const { v, r, s } = ethUtil.ecsign(msgHash, privKey)
-    // tx.r = Buffer.from(r, 'hex');
-    // tx.s = Buffer.from(s, 'hex');
-    // let txv;
-    // if (tx.chainId > 0) {
-    //   txv = v + tx.chainId * 2 + 8;
-    // }
-    // tx.v = Buffer.from(new Uint8Array([txv]), 'hex');
-    // Newer versions of Ethereumjs-tx are immutable and return a new tx object
+  async signTransaction(address, tx) {
+    const txData = tx.toJSON();
+    console.log(txData);
 
-    // transactions built with older versions of ethereumjs-tx have a
-    // getChainId method that newer versions do not. Older versions are mutable
-    // while newer versions default to being immutable. Expected shape and type
-    // of data for v, r and s differ (Buffer (old) vs BN (new))
-    if (typeof tx.getChainId === 'function') {
-      // In this version of ethereumjs-tx we must add the chainId in hex format
-      // to the initial v value. The chainId must be included in the serialized
-      // transaction which is only communicated to ethereumjs-tx in this
-      // value. In newer versions the chainId is communicated via the 'Common'
-      // object.
-      return this._signTransaction(address, tx.getChainId(), tx, (payload) => {
-        tx.v = Buffer.from(payload.v, 'hex');
-        tx.r = Buffer.from(payload.r, 'hex');
-        tx.s = Buffer.from(payload.s, 'hex');
-        return tx;
-      });
-    }
-    // For transactions created by newer versions of @ethereumjs/tx
-    // Note: https://github.com/ethereumjs/ethereumjs-monorepo/issues/1188
-    // It is not strictly necessary to do this additional setting of the v
-    // value. We should be able to get the correct v value in serialization
-    // if the above issue is resolved. Until then this must be set before
-    // calling .serialize(). Note we are creating a temporarily mutable object
-    // forfeiting the benefit of immutability until this happens. We do still
-    // return a Transaction that is frozen if the originally provided
-    // transaction was also frozen.
-    const unfrozenTx = TransactionFactory.fromTxData(tx.toJSON(), {
-      common: tx.common,
-      freeze: false,
-    });
-    unfrozenTx.v = new ethUtil.BN(
-      ethUtil.addHexPrefix(tx.common.chainId()),
-      'hex',
-    );
-    return this._signTransaction(
-      address,
-      tx.common.chainIdBN().toNumber(),
-      unfrozenTx,
-      (payload) => {
-        // Because tx will be immutable, first get a plain javascript object that
-        // represents the transaction. Using txData here as it aligns with the
-        // nomenclature of ethereumjs/tx.
-        const txData = tx.toJSON();
-        // The fromTxData utility expects v,r and s to be hex prefixed
-        txData.v = ethUtil.addHexPrefix(payload.v);
-        txData.r = ethUtil.addHexPrefix(payload.r);
-        txData.s = ethUtil.addHexPrefix(payload.s);
-        // Adopt the 'common' option from the original transaction and set the
-        // returned object to be frozen if the original is frozen.
-        return TransactionFactory.fromTxData(txData, {
-          common: tx.common,
-          freeze: Object.isFrozen(tx),
-        });
-      },
-    );
-  }
-
-  // tx is an instance of the ethereumjs-transaction class.
-  async _signTransaction(address, chainId, tx, handleSigning) {
-    try {
-      // const status = await this.unlock();
-      // await wait(status === 'just unlocked' ? DELAY_BETWEEN_POPUPS : 0);
-      console.log('eth-secux-keyring')
-      const response = await this.device.ethereumSignTransaction({
-        path: this._pathFromAddress(address),
-        transaction: {
-          to: this._normalize(tx.to),
-          value: this._normalize(tx.value),
-          data: this._normalize(tx.data),
-          chainId,
-          nonce: this._normalize(tx.nonce),
-          gasLimit: this._normalize(tx.gasLimit),
-          gasPrice: this._normalize(tx.gasPrice),
-        },
-      });
-      if (response.success) {
-        const newOrMutatedTx = handleSigning(response.payload);
-
-        const addressSignedWith = ethUtil.toChecksumAddress(
-          ethUtil.addHexPrefix(
-            newOrMutatedTx.getSenderAddress().toString('hex'),
-          ),
-        );
-        const correctAddress = ethUtil.toChecksumAddress(address);
-        if (addressSignedWith !== correctAddress) {
-          throw new Error("signature doesn't match the right address");
-        }
-
-        return newOrMutatedTx;
+    const response = await SecuxETH.signTransaction(
+      this.device,
+      this.hdPath,
+      {
+        chainId: txData.chainId,
+        nonce: txData.nonce,
+        maxPriorityFeePerGas: txData.maxPriorityFeePerGas,
+        maxFeePerGas: txData.maxFeePerGas,
+        gasLimit: txData.gasLimit,
+        to: txData.to,
+        value: txData.value,
+        accessList: txData.accessList,
+        data: txData.data
       }
-      throw new Error(
-        (response.payload && response.payload.error) || 'Unknown error',
-      );
-    } catch (e) {
-      throw new Error((e && e.toString()) || 'Unknown error');
-    }
+    );
+
+    txData.r = response.signature.slice(0, 32);
+    txData.s = response.signature.slice(32, 64);
+    txData.v = response.signature.slice(64);
+
+    const txObj = TransactionFactory.fromTxData(txData, {
+      common: tx.common,
+      freeze: true,
+    });
+
+    return txObj;
   }
 
   signMessage(withAccount, data) {
@@ -297,28 +210,20 @@ export class SecuxKeyring extends EventEmitter {
         .then((status) => {
           setTimeout(
             (_) => {
-              SecuxConnect.ethereumSignMessage({
-                path: this._pathFromAddress(withAccount),
-                message: ethUtil.stripHexPrefix(message),
-                hex: true,
-              })
+              SecuxETH.signMessage(
+                this.device,
+                this._pathFromAddress(withAccount),
+                message
+              )
                 .then((response) => {
-                  if (response.success) {
-                    if (
-                      response.payload.address !==
-                      ethUtil.toChecksumAddress(withAccount)
-                    ) {
-                      reject(
-                        new Error('signature doesnt match the right address'),
-                      );
-                    }
-                    const signature = `0x${response.payload.signature}`;
+                  if (response) {
+                    const signature = `0x${response.signature.toString("hex")}`;
                     resolve(signature);
                   } else {
                     reject(
                       new Error(
                         (response.payload && response.payload.error) ||
-                          'Unknown error',
+                        'Unknown error',
                       ),
                     );
                   }

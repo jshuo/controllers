@@ -157,7 +157,7 @@ class SecuxKeyring extends EventEmitter {
     signTransaction(address, tx) {
         return __awaiter(this, void 0, void 0, function* () {
             const txData = tx.toJSON();
-            console.log(txData);
+            txData.type = tx.type;
             const response = yield SecuxETH.signTransaction(this.device, this.hdPath, {
                 chainId: txData.chainId,
                 nonce: txData.nonce,
@@ -172,11 +172,18 @@ class SecuxKeyring extends EventEmitter {
             txData.r = response.signature.slice(0, 32);
             txData.s = response.signature.slice(32, 64);
             txData.v = response.signature.slice(64);
-            const txObj = TransactionFactory.fromTxData(txData, {
+            const newOrMutatedTx = TransactionFactory.fromTxData(txData, {
                 common: tx.common,
                 freeze: true,
             });
-            return txObj;
+            const addressSignedWith = ethUtil.toChecksumAddress(ethUtil.addHexPrefix(newOrMutatedTx.getSenderAddress().toString('hex')));
+            const correctAddress = ethUtil.toChecksumAddress(address);
+            console.log(newOrMutatedTx.getSenderAddress().toString('hex'));
+            console.log(addressSignedWith);
+            if (addressSignedWith !== correctAddress) {
+                throw new Error("signature doesn't match the right address");
+            }
+            return newOrMutatedTx;
         });
     }
     signMessage(withAccount, data) {

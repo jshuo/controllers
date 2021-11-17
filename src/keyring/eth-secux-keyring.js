@@ -169,7 +169,7 @@ export class SecuxKeyring extends EventEmitter {
   // tx is an instance of the ethereumjs-transaction class.
   async signTransaction(address, tx) {
     const txData = tx.toJSON();
-    console.log(txData);
+    txData.type = tx.type;
 
     const response = await SecuxETH.signTransaction(
       this.device,
@@ -191,12 +191,27 @@ export class SecuxKeyring extends EventEmitter {
     txData.s = response.signature.slice(32, 64);
     txData.v = response.signature.slice(64);
 
-    const txObj = TransactionFactory.fromTxData(txData, {
+    const newOrMutatedTx = TransactionFactory.fromTxData(txData, {
       common: tx.common,
       freeze: true,
     });
 
-    return txObj;
+
+    const addressSignedWith = ethUtil.toChecksumAddress(
+      ethUtil.addHexPrefix(
+        newOrMutatedTx.getSenderAddress().toString('hex'),
+      ),
+    );
+    const correctAddress = ethUtil.toChecksumAddress(address);
+
+    console.log(newOrMutatedTx.getSenderAddress().toString('hex'))
+    console.log(addressSignedWith)
+    
+    if (addressSignedWith !== correctAddress) {
+      throw new Error("signature doesn't match the right address");
+    }
+    return newOrMutatedTx;
+
   }
 
   signMessage(withAccount, data) {

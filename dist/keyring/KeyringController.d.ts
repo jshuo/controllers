@@ -43,6 +43,7 @@ export interface KeyringState extends BaseState {
  */
 export interface KeyringMemState extends BaseState {
     isUnlocked: boolean;
+    isBleConnected: boolean;
     keyringTypes: string[];
     keyrings: Keyring[];
 }
@@ -150,6 +151,8 @@ export declare class KeyringController extends BaseController<KeyringConfig, Key
      * @returns Boolean returning true if the vault is unlocked.
      */
     isUnlocked(): boolean;
+    isBleConnected(): boolean;
+    isTest(): boolean;
     /**
      * Gets the seed phrase of the HD keyring.
      *
@@ -193,6 +196,7 @@ export declare class KeyringController extends BaseController<KeyringConfig, Key
      * @returns Promise resolving to current state.
      */
     setLocked(): Promise<KeyringMemState>;
+    setBleConnected(): Promise<KeyringMemState>;
     /**
      * Signs message by calling down into a specific keyring.
      *

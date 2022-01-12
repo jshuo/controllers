@@ -8,6 +8,8 @@ export class SecuxKeyring extends EventEmitter {
     unlockedAccount: number;
     paths: {};
     device: any;
+    store: any;
+    memStore: any;
     serialize(): Promise<{
         hdPath: any;
         accounts: any[];
@@ -18,8 +20,6 @@ export class SecuxKeyring extends EventEmitter {
     }>;
     deserialize(opts?: {}): Promise<void>;
     hdPath: any;
-    isUnlocked(): boolean;
-    unlock(): Promise<any>;
     setAccountToUnlock(index: any): void;
     addAccounts(n?: number): Promise<any>;
     getFirstPage(): Promise<any>;

@@ -72,6 +72,7 @@ export interface KeyringState extends BaseState {
  */
 export interface KeyringMemState extends BaseState {
   isUnlocked: boolean;
+  isBleConnected: boolean;
   keyringTypes: string[];
   keyrings: Keyring[];
 }
@@ -269,7 +270,7 @@ export class KeyringController extends BaseController<
   }
   async useSecuXHardwareWallet(deviceId: string, device: any) {
     console.log('useSecuXHardwareWallet')
-    const releaseLock = await this.mutex.acquire();
+    // const releaseLock = await this.mutex.acquire();
     // const keyring = await privates.get(this);
     try {
       this.updateIdentities([]);
@@ -280,7 +281,7 @@ export class KeyringController extends BaseController<
       this.fullUpdate();
       return vault;
     } finally {
-      releaseLock();
+      // releaseLock();
     }
   }
 
@@ -313,6 +314,13 @@ export class KeyringController extends BaseController<
     return privates.get(this).keyring.memStore.getState().isUnlocked;
   }
 
+  isBleConnected(): boolean {
+    return privates.get(this).keyring.memStore.getState().isBleConnected;
+  }
+
+  isTest(): boolean {
+    return true;
+  }
   /**
    * Gets the seed phrase of the HD keyring.
    *
@@ -417,6 +425,10 @@ export class KeyringController extends BaseController<
    */
   setLocked(): Promise<KeyringMemState> {
     return privates.get(this).keyring.setLocked();
+  }
+
+  setBleConnected(): Promise<KeyringMemState> {
+    return privates.get(this).keyring.setBleConnected();
   }
 
   /**

@@ -1,6 +1,6 @@
 const { EventEmitter } = require('events');
 const ethUtil = require('ethereumjs-util');
-// const HDKey = require('hdkey');
+const ObservableStore = require('obs-store')
 const { TransactionFactory } = require('@ethereumjs/tx');
 const { SecuxTransactionTool } = require("@secux/protocol-transaction");
 const { SecuxETH } = require("@secux/app-eth");
@@ -24,8 +24,13 @@ export class SecuxKeyring extends EventEmitter {
     this.perPage = 5;
     this.unlockedAccount = 0;
     this.paths = {};
+    const initState = opts.initState || {}
     this.device = opts.device
     this.deserialize(opts);
+    this.store = new ObservableStore(initState)
+    this.memStore = new ObservableStore({
+      isBleConnected: true
+    })
   }
 
   serialize() {
@@ -38,7 +43,7 @@ export class SecuxKeyring extends EventEmitter {
       unlockedAccount: this.unlockedAccount,
     });
   }
-
+  
   deserialize(opts = {}) {
     this.hdPath = opts.hdPath || hdPathString;
     this.accounts = opts.accounts || [];
@@ -47,34 +52,7 @@ export class SecuxKeyring extends EventEmitter {
     return Promise.resolve();
   }
 
-  isUnlocked() {
-    return Boolean(this.hdk && this.hdk.publicKey);
-  }
 
-  unlock() {
-    if (this.isUnlocked()) {
-      return Promise.resolve('already unlocked');
-    }
-    return new Promise((resolve, reject) => {
-      this.device.getXPublickey(this.hdPath)
-        .then((response) => {
-          if (response.success) {
-            this.hdk.publicKey = Buffer.from(response.payload.publicKey, 'hex');
-            this.hdk.chainCode = Buffer.from(response.payload.chainCode, 'hex');
-            resolve('just unlocked');
-          } else {
-            reject(
-              new Error(
-                (response.payload && response.payload.error) || 'Unknown error',
-              ),
-            );
-          }
-        })
-        .catch((e) => {
-          reject(new Error((e && e.toString()) || 'Unknown error'));
-        });
-    });
-  }
 
   setAccountToUnlock(index) {
     this.unlockedAccount = parseInt(index, 10);
@@ -148,6 +126,7 @@ export class SecuxKeyring extends EventEmitter {
   }
 
   async getAccounts() {
+    console.log('getAccounts')
     const address = await SecuxETH.getAddress(this.device, this.hdPath);
     this.accounts = [address];
     console.log(this.accounts.slice())

@@ -2,10 +2,6 @@ import { BaseController, BaseConfig, BaseState } from '../BaseController';
 import type { NetworkState, NetworkType } from '../network/NetworkController';
 import type { PreferencesState } from '../user/PreferencesController';
 import type { CollectiblesController, CollectiblesState } from './CollectiblesController';
-import type { TokensController, TokensState } from './TokensController';
-import type { AssetsContractController } from './AssetsContractController';
-import { Token } from './TokenRatesController';
-import { TokenListState } from './TokenListController';
 /**
  * @type ApiCollectible
  *
@@ -50,25 +46,26 @@ export interface ApiCollectible {
  * @property address - Address of the collectible contract
  * @property asset_contract_type - The collectible type, it could be `semi-fungible` or `non-fungible`
  * @property created_date - Creation date
- * @property name - The collectible contract name
+ * @property collection - Object containing the contract name and URI of an image associated
  * @property schema_name - The schema followed by the contract, it could be `ERC721` or `ERC1155`
  * @property symbol - The collectible contract symbol
  * @property total_supply - Total supply of collectibles
  * @property description - The collectible contract description
  * @property external_link - External link containing additional information
- * @property image_url - URI of an image associated with this collectible contract
  */
 export interface ApiCollectibleContract {
     address: string;
     asset_contract_type: string | null;
     created_date: string | null;
-    name: string | null;
     schema_name: string | null;
     symbol: string | null;
     total_supply: string | null;
     description: string | null;
     external_link: string | null;
-    image_url: string | null;
+    collection: {
+        name: string | null;
+        image_url?: string | null;
+    };
 }
 /**
  * @type ApiCollectibleLastSale
@@ -102,25 +99,25 @@ export interface ApiCollectibleCreator {
     address: string;
 }
 /**
- * @type AssetsConfig
+ * @type CollectibleDetectionConfig
  *
- * Assets controller configuration
+ * CollectibleDetection configuration
  * @property interval - Polling interval used to fetch new token rates
  * @property networkType - Network type ID as per net_version
  * @property selectedAddress - Vault selected address
  * @property tokens - List of tokens associated with the active vault
  */
-export interface AssetsDetectionConfig extends BaseConfig {
+export interface CollectibleDetectionConfig extends BaseConfig {
     interval: number;
     networkType: NetworkType;
+    chainId: `0x${string}` | `${number}` | number;
     selectedAddress: string;
-    tokens: Token[];
 }
 /**
- * Controller that passively polls on a set interval for assets auto detection
+ * Controller that passively polls on a set interval for Collectibles auto detection
  */
-export declare class AssetsDetectionController extends BaseController<AssetsDetectionConfig, BaseState> {
-    private handle?;
+export declare class CollectibleDetectionController extends BaseController<CollectibleDetectionConfig, BaseState> {
+    private intervalId?;
     private getOwnerCollectiblesApi;
     private getOwnerCollectibles;
     /**
@@ -128,67 +125,54 @@ export declare class AssetsDetectionController extends BaseController<AssetsDete
      */
     name: string;
     private getOpenSeaApiKey;
-    private getBalancesInSingleCall;
-    private addTokens;
     private addCollectible;
     private getCollectiblesState;
-    private getTokensState;
-    private getTokenListState;
     /**
-     * Creates a AssetsDetectionController instance.
+     * Creates a CollectibleDetectionController instance.
      *
      * @param options - The controller options.
      * @param options.onCollectiblesStateChange - Allows subscribing to assets controller state changes.
-     * @param options.onTokensStateChange - Allows subscribing to tokens controller state changes.
      * @param options.onPreferencesStateChange - Allows subscribing to preferences controller state changes.
      * @param options.onNetworkStateChange - Allows subscribing to network controller state changes.
      * @param options.getOpenSeaApiKey - Gets the OpenSea API key, if one is set.
-     * @param options.getBalancesInSingleCall - Gets the balances of a list of tokens for the given address.
-     * @param options.addTokens - Add a list of tokens.
      * @param options.addCollectible - Add a collectible.
      * @param options.getCollectiblesState - Gets the current state of the Assets controller.
-     * @param options.getTokenListState - Gets the current state of the TokenList controller.
-     * @param options.getTokensState - Gets the current state of the Tokens controller.
      * @param config - Initial options used to configure this controller.
      * @param state - Initial state to set on this controller.
      */
-    constructor({ onTokensStateChange, onPreferencesStateChange, onNetworkStateChange, getOpenSeaApiKey, getBalancesInSingleCall, addTokens, addCollectible, getCollectiblesState, getTokenListState, getTokensState, }: {
+    constructor({ onPreferencesStateChange, onNetworkStateChange, getOpenSeaApiKey, addCollectible, getCollectiblesState, }: {
         onCollectiblesStateChange: (listener: (collectiblesState: CollectiblesState) => void) => void;
-        onTokensStateChange: (listener: (tokensState: TokensState) => void) => void;
         onPreferencesStateChange: (listener: (preferencesState: PreferencesState) => void) => void;
         onNetworkStateChange: (listener: (networkState: NetworkState) => void) => void;
         getOpenSeaApiKey: () => string | undefined;
-        getBalancesInSingleCall: AssetsContractController['getBalancesInSingleCall'];
-        addTokens: TokensController['addTokens'];
         addCollectible: CollectiblesController['addCollectible'];
         getCollectiblesState: () => CollectiblesState;
-        getTokenListState: () => TokenListState;
-        getTokensState: () => TokensState;
-    }, config?: Partial<AssetsDetectionConfig>, state?: Partial<BaseState>);
+    }, config?: Partial<CollectibleDetectionConfig>, state?: Partial<BaseState>);
+    /**
+     * Start polling for the currency rate.
+     */
+    start(): Promise<void>;
+    /**
+     * Stop polling for the currency rate.
+     */
+    stop(): void;
+    private stopPolling;
     /**
      * Starts a new polling interval.
      *
-     * @param interval - Polling interval used to auto detect assets.
+     * @param interval - An interval on which to poll.
      */
-    poll(interval?: number): Promise<void>;
+    private startPolling;
     /**
      * Checks whether network is mainnet or not.
      *
      * @returns Whether current network is mainnet.
      */
-    isMainnet(): boolean;
-    /**
-     * Detect assets owned by current account on mainnet.
-     */
-    detectAssets(): Promise<void>;
-    /**
-     * Triggers asset ERC20 token auto detection for each contract address in contract metadata on mainnet.
-     */
-    detectTokens(): Promise<void>;
+    isMainnet: () => boolean;
     /**
      * Triggers asset ERC721 token auto detection on mainnet. Any newly detected collectibles are
      * added.
      */
     detectCollectibles(): Promise<void>;
 }
-export default AssetsDetectionController;
+export default CollectibleDetectionController;

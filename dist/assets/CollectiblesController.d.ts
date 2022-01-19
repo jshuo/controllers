@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import { BaseController, BaseConfig, BaseState } from '../BaseController';
 import type { PreferencesState } from '../user/PreferencesController';
 import type { NetworkState, NetworkType } from '../network/NetworkController';
-import type { ApiCollectibleCreator, ApiCollectibleLastSale } from './AssetsDetectionController';
+import type { ApiCollectibleCreator, ApiCollectibleLastSale } from './CollectibleDetectionController';
 import type { AssetsContractController } from './AssetsContractController';
 /**
  * @type Collectible
@@ -25,7 +25,7 @@ import type { AssetsContractController } from './AssetsContractController';
  * @property creator - The collectible owner information object
  */
 export interface Collectible extends CollectibleMetadata {
-    tokenId: number;
+    tokenId: string;
     address: string;
 }
 /**
@@ -71,13 +71,15 @@ export interface CollectibleContract {
  * @property animationOriginal - URI of the original animation associated with this collectible
  * @property externalLink - External link containing additional information
  * @property creator - The collectible owner information object
+ * @property standard - NFT standard name for the collectible, e.g., ERC-721 or ERC-1155
  */
 export interface CollectibleMetadata {
-    name?: string;
-    description?: string;
+    name: string | null;
+    description: string | null;
+    image: string | null;
+    standard: string | null;
     numberOfSales?: number;
     backgroundColor?: string;
-    image?: string;
     imagePreview?: string;
     imageThumbnail?: string;
     imageOriginal?: string;
@@ -86,6 +88,10 @@ export interface CollectibleMetadata {
     externalLink?: string;
     creator?: ApiCollectibleCreator;
     lastSale?: ApiCollectibleLastSale;
+}
+interface DetectionParams {
+    userAddress: string;
+    chainId: string;
 }
 /**
  * @type CollectiblesConfig
@@ -98,6 +104,9 @@ export interface CollectiblesConfig extends BaseConfig {
     networkType: NetworkType;
     selectedAddress: string;
     chainId: string;
+    ipfsGateway: string;
+    openSeaEnabled: boolean;
+    useIPFSSubdomains: boolean;
 }
 /**
  * @type CollectiblesState
@@ -120,8 +129,6 @@ export interface CollectiblesState extends BaseState {
             [key: string]: Collectible[];
         };
     };
-    collectibleContracts: CollectibleContract[];
-    collectibles: Collectible[];
     ignoredCollectibles: Collectible[];
 }
 /**
@@ -147,6 +154,14 @@ export declare class CollectiblesController extends BaseController<CollectiblesC
      * @returns Promise resolving to the current collectible name and image.
      */
     private getCollectibleInformationFromTokenURI;
+    /**
+     * Retrieve collectible uri with  metadata. TODO Update method to use IPFS.
+     *
+     * @param contractAddress - Collectible contract address.
+     * @param tokenId - Collectible token id.
+     * @returns Promise resolving collectible uri and token standard.
+     */
+    private getCollectibleURIAndStandard;
     /**
      * Request individual collectible information (name, image url and description).
      *
@@ -182,6 +197,7 @@ export declare class CollectiblesController extends BaseController<CollectiblesC
      * @param address - Hex address of the collectible contract.
      * @param tokenId - The collectible identifier.
      * @param collectibleMetadata - Collectible optional information (name, image and description).
+     * @param detection - The chain ID and address of the currently selected network and account at the moment the collectible was detected.
      * @returns Promise resolving to the current collectible list.
      */
     private addIndividualCollectible;
@@ -189,7 +205,7 @@ export declare class CollectiblesController extends BaseController<CollectiblesC
      * Adds a collectible contract to the stored collectible contracts list.
      *
      * @param address - Hex address of the collectible contract.
-     * @param detection - Whether the collectible is manually added or auto-detected.
+     * @param detection - The chain ID and address of the currently selected network and account at the moment the collectible was detected.
      * @returns Promise resolving to the current collectible contracts list.
      */
     private addCollectibleContract;
@@ -229,6 +245,9 @@ export declare class CollectiblesController extends BaseController<CollectiblesC
     private getAssetName;
     private getAssetSymbol;
     private getCollectibleTokenURI;
+    private getOwnerOf;
+    private balanceOfERC1155Collectible;
+    private uriERC1155Collectible;
     /**
      * Creates a CollectiblesController instance.
      *
@@ -237,16 +256,22 @@ export declare class CollectiblesController extends BaseController<CollectiblesC
      * @param options.onNetworkStateChange - Allows subscribing to network controller state changes.
      * @param options.getAssetName - Gets the name of the asset at the given address.
      * @param options.getAssetSymbol - Gets the symbol of the asset at the given address.
-     * @param options.getCollectibleTokenURI - Gets the URI of the NFT at the given address, with the given ID.
+     * @param options.getCollectibleTokenURI - Gets the URI of the ERC721 token at the given address, with the given ID.
+     * @param options.getOwnerOf - Get the owner of a ERC-721 collectible.
+     * @param options.balanceOfERC1155Collectible - Gets balance of a ERC-1155 collectible.
+     * @param options.uriERC1155Collectible - Gets the URI of the ERC1155 token at the given address, with the given ID.
      * @param config - Initial options used to configure this controller.
      * @param state - Initial state to set on this controller.
      */
-    constructor({ onPreferencesStateChange, onNetworkStateChange, getAssetName, getAssetSymbol, getCollectibleTokenURI, }: {
+    constructor({ onPreferencesStateChange, onNetworkStateChange, getAssetName, getAssetSymbol, getCollectibleTokenURI, getOwnerOf, balanceOfERC1155Collectible, uriERC1155Collectible, }: {
         onPreferencesStateChange: (listener: (preferencesState: PreferencesState) => void) => void;
         onNetworkStateChange: (listener: (networkState: NetworkState) => void) => void;
         getAssetName: AssetsContractController['getAssetName'];
         getAssetSymbol: AssetsContractController['getAssetSymbol'];
         getCollectibleTokenURI: AssetsContractController['getCollectibleTokenURI'];
+        getOwnerOf: AssetsContractController['getOwnerOf'];
+        balanceOfERC1155Collectible: AssetsContractController['balanceOfERC1155Collectible'];
+        uriERC1155Collectible: AssetsContractController['uriERC1155Collectible'];
     }, config?: Partial<BaseConfig>, state?: Partial<CollectiblesState>);
     /**
      * Sets an OpenSea API key to retrieve collectible information.
@@ -255,29 +280,46 @@ export declare class CollectiblesController extends BaseController<CollectiblesC
      */
     setApiKey(openSeaApiKey: string): void;
     /**
+     * Checks the ownership of a ERC-721 or ERC-1155 collectible for a given address.
+     *
+     * @param ownerAddress - User public address.
+     * @param collectibleAddress - Collectible contract address.
+     * @param collectibleId - Collectible token ID.
+     * @returns Promise resolving the collectible ownership.
+     */
+    isCollectibleOwner(ownerAddress: string, collectibleAddress: string, collectibleId: string): Promise<boolean>;
+    /**
+     * Verifies currently selected address owns entered collectible address/tokenId combo and
+     * adds the collectible and respective collectible contract to the stored collectible and collectible contracts lists.
+     *
+     * @param address - Hex address of the collectible contract.
+     * @param tokenId - The collectible identifier.
+     */
+    addCollectibleVerifyOwnership(address: string, tokenId: string): Promise<void>;
+    /**
      * Adds a collectible and respective collectible contract to the stored collectible and collectible contracts lists.
      *
      * @param address - Hex address of the collectible contract.
      * @param tokenId - The collectible identifier.
      * @param collectibleMetadata - Collectible optional metadata.
-     * @param detection - Whether the collectible is manually added or autodetected.
+     * @param detection - The chain ID and address of the currently selected network and account at the moment the collectible was detected.
      * @returns Promise resolving to the current collectible list.
      */
-    addCollectible(address: string, tokenId: number, collectibleMetadata?: CollectibleMetadata, detection?: boolean): Promise<void>;
+    addCollectible(address: string, tokenId: string, collectibleMetadata?: CollectibleMetadata, detection?: DetectionParams): Promise<void>;
     /**
      * Removes a collectible from the stored token list.
      *
      * @param address - Hex address of the collectible contract.
      * @param tokenId - Token identifier of the collectible.
      */
-    removeCollectible(address: string, tokenId: number): void;
+    removeCollectible(address: string, tokenId: string): void;
     /**
      * Removes a collectible from the stored token list and saves it in ignored collectibles list.
      *
      * @param address - Hex address of the collectible contract.
      * @param tokenId - Token identifier of the collectible.
      */
-    removeAndIgnoreCollectible(address: string, tokenId: number): void;
+    removeAndIgnoreCollectible(address: string, tokenId: string): void;
     /**
      * Removes all collectibles from the ignored list.
      */

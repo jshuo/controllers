@@ -13,7 +13,7 @@ import type { RestrictedControllerMessenger } from '../ControllerMessenger';
  * @property usdConversionRate - Conversion rate from usd to the current currency
  */
 export declare type CurrencyRateState = {
-    conversionDate: number;
+    conversionDate: number | null;
     conversionRate: number | null;
     currentCurrency: string;
     nativeCurrency: string;

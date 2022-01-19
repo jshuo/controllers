@@ -24,14 +24,8 @@ export interface BalanceMap {
  */
 export declare class AssetsContractController extends BaseController<AssetsContractConfig, BaseState> {
     private web3;
-    /**
-     * Query if a contract implements an interface.
-     *
-     * @param address - Asset contract address.
-     * @param interfaceId - Interface identifier.
-     * @returns Promise resolving to whether the contract implements `interfaceID`.
-     */
-    private contractSupportsInterface;
+    private erc721Standard;
+    private erc1155Standard;
     /**
      * Name of this controller used during composition
      */
@@ -53,27 +47,20 @@ export declare class AssetsContractController extends BaseController<AssetsContr
     set provider(provider: any);
     get provider(): any;
     /**
-     * Query if contract implements ERC721Metadata interface.
-     *
-     * @param address - ERC721 asset contract address.
-     * @returns Promise resolving to whether the contract implements ERC721Metadata interface.
-     */
-    contractSupportsMetadataInterface(address: string): Promise<boolean>;
-    /**
-     * Query if contract implements ERC721Enumerable interface.
-     *
-     * @param address - ERC721 asset contract address.
-     * @returns Promise resolving to whether the contract implements ERC721Enumerable interface.
-     */
-    contractSupportsEnumerableInterface(address: string): Promise<boolean>;
-    /**
      * Get balance or count for current account on specific asset contract.
      *
-     * @param address - Asset contract address.
+     * @param address - Asset ERC20 contract address.
      * @param selectedAddress - Current account public address.
      * @returns Promise resolving to BN object containing balance for current account on specific asset contract.
      */
     getBalanceOf(address: string, selectedAddress: string): Promise<BN>;
+    /**
+     * Query for name for a given ERC20 asset.
+     *
+     * @param address - ERC20 asset contract address.
+     * @returns Promise resolving to the 'decimals'.
+     */
+    getTokenDecimals(address: string): Promise<string>;
     /**
      * Enumerate assets assigned to an owner.
      *
@@ -82,7 +69,7 @@ export declare class AssetsContractController extends BaseController<AssetsContr
      * @param index - A collectible counter less than `balanceOf(selectedAddress)`.
      * @returns Promise resolving to token identifier for the 'index'th asset assigned to 'selectedAddress'.
      */
-    getCollectibleTokenId(address: string, selectedAddress: string, index: number): Promise<number>;
+    getCollectibleTokenId(address: string, selectedAddress: string, index: number): Promise<string>;
     /**
      * Query for tokenURI for a given asset.
      *
@@ -90,14 +77,7 @@ export declare class AssetsContractController extends BaseController<AssetsContr
      * @param tokenId - ERC721 asset identifier.
      * @returns Promise resolving to the 'tokenURI'.
      */
-    getCollectibleTokenURI(address: string, tokenId: number): Promise<string>;
-    /**
-     * Query for name for a given ERC20 asset.
-     *
-     * @param address - ERC20 asset contract address.
-     * @returns Promise resolving to the 'decimals'.
-     */
-    getTokenDecimals(address: string): Promise<string>;
+    getCollectibleTokenURI(address: string, tokenId: string): Promise<string>;
     /**
      * Query for name for a given asset.
      *
@@ -119,7 +99,35 @@ export declare class AssetsContractController extends BaseController<AssetsContr
      * @param tokenId - ERC721 asset identifier.
      * @returns Promise resolving to the owner address.
      */
-    getOwnerOf(address: string, tokenId: number): Promise<string>;
+    getOwnerOf(address: string, tokenId: string): Promise<string>;
+    /**
+     * Query for tokenURI for a given asset.
+     *
+     * @param address - ERC1155 asset contract address.
+     * @param tokenId - ERC1155 asset identifier.
+     * @returns Promise resolving to the 'tokenURI'.
+     */
+    uriERC1155Collectible(address: string, tokenId: string): Promise<string>;
+    /**
+     * Query for balance of a given ERC 1155 token.
+     *
+     * @param userAddress - Wallet public address.
+     * @param collectibleAddress - ERC1155 asset contract address.
+     * @param collectibleId - ERC1155 asset identifier.
+     * @returns Promise resolving to the 'balanceOf'.
+     */
+    balanceOfERC1155Collectible(userAddress: string, collectibleAddress: string, collectibleId: string): Promise<number>;
+    /**
+     * Transfer single ERC1155 token.
+     *
+     * @param collectibleAddress - ERC1155 token address.
+     * @param senderAddress - ERC1155 token sender.
+     * @param recipientAddress - ERC1155 token recipient.
+     * @param collectibleId - ERC1155 token id.
+     * @param qty - Quantity of tokens to be sent.
+     * @returns Promise resolving to the 'transferSingle' ERC1155 token.
+     */
+    transferSingleERC1155Collectible(collectibleAddress: string, senderAddress: string, recipientAddress: string, collectibleId: string, qty: string): Promise<void>;
     /**
      * Get the token balance for a list of token addresses in a single call. Only non-zero balances
      * are returned.

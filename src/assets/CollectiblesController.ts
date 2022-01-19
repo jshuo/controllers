@@ -1,16 +1,30 @@
 import { EventEmitter } from 'events';
+import { BN, stripHexPrefix } from 'ethereumjs-util';
 import { Mutex } from 'async-mutex';
+
 import { BaseController, BaseConfig, BaseState } from '../BaseController';
 import type { PreferencesState } from '../user/PreferencesController';
 import type { NetworkState, NetworkType } from '../network/NetworkController';
-import { safelyExecute, handleFetch, toChecksumHexAddress } from '../util';
-import { MAINNET } from '../constants';
+import {
+  safelyExecute,
+  handleFetch,
+  toChecksumHexAddress,
+  BNToHex,
+  getFormattedIpfsUrl,
+} from '../util';
+import {
+  MAINNET,
+  RINKEBY_CHAIN_ID,
+  IPFS_DEFAULT_GATEWAY_URL,
+  ERC721,
+  ERC1155,
+} from '../constants';
 import type {
   ApiCollectible,
   ApiCollectibleCreator,
   ApiCollectibleContract,
   ApiCollectibleLastSale,
-} from './AssetsDetectionController';
+} from './CollectibleDetectionController';
 import type { AssetsContractController } from './AssetsContractController';
 import { compareCollectiblesMetadata } from './assetsUtil';
 
@@ -34,7 +48,7 @@ import { compareCollectiblesMetadata } from './assetsUtil';
  * @property creator - The collectible owner information object
  */
 export interface Collectible extends CollectibleMetadata {
-  tokenId: number;
+  tokenId: string;
   address: string;
 }
 
@@ -82,13 +96,15 @@ export interface CollectibleContract {
  * @property animationOriginal - URI of the original animation associated with this collectible
  * @property externalLink - External link containing additional information
  * @property creator - The collectible owner information object
+ * @property standard - NFT standard name for the collectible, e.g., ERC-721 or ERC-1155
  */
 export interface CollectibleMetadata {
-  name?: string;
-  description?: string;
+  name: string | null;
+  description: string | null;
+  image: string | null;
+  standard: string | null;
   numberOfSales?: number;
   backgroundColor?: string;
-  image?: string;
   imagePreview?: string;
   imageThumbnail?: string;
   imageOriginal?: string;
@@ -97,6 +113,11 @@ export interface CollectibleMetadata {
   externalLink?: string;
   creator?: ApiCollectibleCreator;
   lastSale?: ApiCollectibleLastSale;
+}
+
+interface DetectionParams {
+  userAddress: string;
+  chainId: string;
 }
 
 /**
@@ -110,6 +131,9 @@ export interface CollectiblesConfig extends BaseConfig {
   networkType: NetworkType;
   selectedAddress: string;
   chainId: string;
+  ipfsGateway: string;
+  openSeaEnabled: boolean;
+  useIPFSSubdomains: boolean;
 }
 
 /**
@@ -127,8 +151,6 @@ export interface CollectiblesState extends BaseState {
     [key: string]: { [key: string]: CollectibleContract[] };
   };
   allCollectibles: { [key: string]: { [key: string]: Collectible[] } };
-  collectibleContracts: CollectibleContract[];
-  collectibles: Collectible[];
   ignoredCollectibles: Collectible[];
 }
 
@@ -141,12 +163,24 @@ export class CollectiblesController extends BaseController<
 > {
   private mutex = new Mutex();
 
-  private getCollectibleApi(contractAddress: string, tokenId: number) {
-    return `https://api.opensea.io/api/v1/asset/${contractAddress}/${tokenId}`;
+  private getCollectibleApi(contractAddress: string, tokenId: string) {
+    const { chainId } = this.config;
+    switch (chainId) {
+      case RINKEBY_CHAIN_ID:
+        return `https://testnets-api.opensea.io/api/v1/asset/${contractAddress}/${tokenId}`;
+      default:
+        return `https://api.opensea.io/api/v1/asset/${contractAddress}/${tokenId}`;
+    }
   }
 
   private getCollectibleContractInformationApi(contractAddress: string) {
-    return `https://api.opensea.io/api/v1/asset_contract/${contractAddress}`;
+    const { chainId } = this.config;
+    switch (chainId) {
+      case RINKEBY_CHAIN_ID:
+        return `https://testnets-api.opensea.io/api/v1/asset_contract/${contractAddress}`;
+      default:
+        return `https://api.opensea.io/api/v1/asset_contract/${contractAddress}`;
+    }
   }
 
   /**
@@ -158,10 +192,11 @@ export class CollectiblesController extends BaseController<
    */
   private async getCollectibleInformationFromApi(
     contractAddress: string,
-    tokenId: number,
+    tokenId: string,
   ): Promise<CollectibleMetadata> {
     const tokenURI = this.getCollectibleApi(contractAddress, tokenId);
     let collectibleInformation: ApiCollectible;
+
     /* istanbul ignore if */
     if (this.openSeaApiKey) {
       collectibleInformation = await handleFetch(tokenURI, {
@@ -170,6 +205,7 @@ export class CollectiblesController extends BaseController<
     } else {
       collectibleInformation = await handleFetch(tokenURI);
     }
+
     const {
       num_sales,
       background_color,
@@ -184,15 +220,16 @@ export class CollectiblesController extends BaseController<
       external_link,
       creator,
       last_sale,
+      asset_contract: { schema_name },
     } = collectibleInformation;
 
     /* istanbul ignore next */
     const collectibleMetadata: CollectibleMetadata = Object.assign(
       {},
-      { name },
+      { name: name || null },
+      { description: description || null },
+      { image: image_url || null },
       creator && { creator },
-      description && { description },
-      image_url && { image: image_url },
       num_sales && { numberOfSales: num_sales },
       background_color && { backgroundColor: background_color },
       image_preview_url && { imagePreview: image_preview_url },
@@ -204,6 +241,7 @@ export class CollectiblesController extends BaseController<
       },
       external_link && { externalLink: external_link },
       last_sale && { lastSale: last_sale },
+      schema_name && { standard: schema_name },
     );
 
     return collectibleMetadata;
@@ -218,17 +256,88 @@ export class CollectiblesController extends BaseController<
    */
   private async getCollectibleInformationFromTokenURI(
     contractAddress: string,
-    tokenId: number,
+    tokenId: string,
   ): Promise<CollectibleMetadata> {
-    const tokenURI = await this.getCollectibleTokenURI(
+    const { ipfsGateway, useIPFSSubdomains } = this.config;
+    const result = await this.getCollectibleURIAndStandard(
       contractAddress,
       tokenId,
     );
-    const object = await handleFetch(tokenURI);
-    const image = Object.prototype.hasOwnProperty.call(object, 'image')
-      ? 'image'
-      : /* istanbul ignore next */ 'image_url';
-    return { image: object[image], name: object.name };
+    let tokenURI = result[0];
+    const standard = result[1];
+
+    if (tokenURI.startsWith('ipfs://')) {
+      tokenURI = getFormattedIpfsUrl(ipfsGateway, tokenURI, useIPFSSubdomains);
+    }
+
+    try {
+      const object = await handleFetch(tokenURI);
+      // TODO: Check image_url existence. This is not part of EIP721 nor EIP1155
+      const image = Object.prototype.hasOwnProperty.call(object, 'image')
+        ? 'image'
+        : /* istanbul ignore next */ 'image_url';
+
+      return {
+        image: object[image],
+        name: object.name,
+        description: object.description,
+        standard,
+      };
+    } catch {
+      return {
+        image: null,
+        name: null,
+        description: null,
+        standard: standard || null,
+      };
+    }
+  }
+
+  /**
+   * Retrieve collectible uri with  metadata. TODO Update method to use IPFS.
+   *
+   * @param contractAddress - Collectible contract address.
+   * @param tokenId - Collectible token id.
+   * @returns Promise resolving collectible uri and token standard.
+   */
+  private async getCollectibleURIAndStandard(
+    contractAddress: string,
+    tokenId: string,
+  ): Promise<[string, string]> {
+    // try ERC721 uri
+    try {
+      const uri = await this.getCollectibleTokenURI(contractAddress, tokenId);
+      return [uri, ERC721];
+    } catch {
+      // Ignore error
+    }
+
+    // try ERC1155 uri
+    try {
+      const tokenURI = await this.uriERC1155Collectible(
+        contractAddress,
+        tokenId,
+      );
+
+      /**
+       * According to EIP1155 the URI value allows for ID substitution
+       * in case the string `{id}` exists.
+       * https://eips.ethereum.org/EIPS/eip-1155#metadata
+       */
+
+      if (!tokenURI.includes('{id}')) {
+        return [tokenURI, ERC1155];
+      }
+
+      const hexTokenId = stripHexPrefix(BNToHex(new BN(tokenId)))
+        .padStart(64, '0')
+        .toLowerCase();
+      return [tokenURI.replace('{id}', hexTokenId), ERC1155];
+    } catch {
+      // Ignore error
+    }
+
+    return ['', ''];
   }
 
   /**
@@ -240,35 +349,34 @@ export class CollectiblesController extends BaseController<
    */
   private async getCollectibleInformation(
     contractAddress: string,
-    tokenId: number,
+    tokenId: string,
   ): Promise<CollectibleMetadata> {
-    let information;
-    // First try with OpenSea
-    information = await safelyExecute(async () => {
-      return await this.getCollectibleInformationFromApi(
-        contractAddress,
-        tokenId,
-      );
-    });
-
-    if (information) {
-      return information;
-    }
-
-    // Then following ERC721 standard
-    information = await safelyExecute(async () => {
+    const blockchainMetadata = await safelyExecute(async () => {
       return await this.getCollectibleInformationFromTokenURI(
         contractAddress,
         tokenId,
       );
     });
 
-    /* istanbul ignore next */
-    if (information) {
-      return information;
+    let openSeaMetadata;
+    if (this.config.openSeaEnabled) {
+      openSeaMetadata = await safelyExecute(async () => {
+        return await this.getCollectibleInformationFromApi(
+          contractAddress,
+          tokenId,
+        );
+      });
     }
-    /* istanbul ignore next */
-    return {};
+
+    return {
+      ...openSeaMetadata,
+      name: blockchainMetadata.name ?? openSeaMetadata?.name ?? null,
+      description:
+        blockchainMetadata.description ?? openSeaMetadata?.description ?? null,
+      image: blockchainMetadata.image ?? openSeaMetadata?.image ?? null,
+      standard:
+        blockchainMetadata.standard ?? openSeaMetadata?.standard ?? null,
+    };
   }
 
   /**
@@ -301,20 +409,17 @@ export class CollectiblesController extends BaseController<
    */
   private async getCollectibleContractInformationFromContract(
     contractAddress: string,
-  ): Promise<ApiCollectibleContract> {
+  ): Promise<
+    Partial<ApiCollectibleContract> &
+      Pick<ApiCollectibleContract, 'address'> &
+      Pick<ApiCollectibleContract, 'collection'>
+  > {
     const name = await this.getAssetName(contractAddress);
     const symbol = await this.getAssetSymbol(contractAddress);
     return {
-      name,
+      collection: { name },
       symbol,
       address: contractAddress,
-      asset_contract_type: null,
-      created_date: null,
-      schema_name: null,
-      total_supply: null,
-      description: null,
-      external_link: null,
-      image_url: null,
     };
   }
 
@@ -326,41 +431,53 @@ export class CollectiblesController extends BaseController<
    */
   private async getCollectibleContractInformation(
     contractAddress: string,
-  ): Promise<ApiCollectibleContract> {
-    let information;
-    // First try with OpenSea
-    information = await safelyExecute(async () => {
-      return await this.getCollectibleContractInformationFromApi(
-        contractAddress,
-      );
-    });
+  ): Promise<
+    Partial<ApiCollectibleContract> &
+      Pick<ApiCollectibleContract, 'address'> &
+      Pick<ApiCollectibleContract, 'collection'>
+  > {
+    const blockchainContractData: Partial<ApiCollectibleContract> &
+      Pick<ApiCollectibleContract, 'address'> &
+      Pick<ApiCollectibleContract, 'collection'> = await safelyExecute(
+      async () => {
+        return await this.getCollectibleContractInformationFromContract(
+          contractAddress,
+        );
+      },
+    );
 
-    if (information) {
-      return information;
+    let openSeaContractData: Partial<ApiCollectibleContract> | undefined;
+    if (this.config.openSeaEnabled) {
+      openSeaContractData = await safelyExecute(async () => {
+        return await this.getCollectibleContractInformationFromApi(
+          contractAddress,
+        );
+      });
     }
 
-    // Then following ERC721 standard
-    information = await safelyExecute(async () => {
-      return await this.getCollectibleContractInformationFromContract(
-        contractAddress,
-      );
-    });
-
-    if (information) {
-      return information;
+    if (blockchainContractData || openSeaContractData) {
+      return {
+        ...openSeaContractData,
+        ...blockchainContractData,
+        collection: {
+          image_url: null,
+          ...openSeaContractData?.collection,
+          ...blockchainContractData?.collection,
+        },
+      };
     }
+
     /* istanbul ignore next */
     return {
       address: contractAddress,
       asset_contract_type: null,
       created_date: null,
-      name: null,
       schema_name: null,
       symbol: null,
       total_supply: null,
       description: null,
       external_link: null,
-      image_url: null,
+      collection: { name: null, image_url: null },
     };
   }
 
@@ -370,27 +487,37 @@ export class CollectiblesController extends BaseController<
    * @param address - Hex address of the collectible contract.
    * @param tokenId - The collectible identifier.
    * @param collectibleMetadata - Collectible optional information (name, image and description).
+   * @param detection - The chain ID and address of the currently selected network and account at the moment the collectible was detected.
    * @returns Promise resolving to the current collectible list.
    */
   private async addIndividualCollectible(
     address: string,
-    tokenId: number,
-    collectibleMetadata?: CollectibleMetadata,
+    tokenId: string,
+    collectibleMetadata: CollectibleMetadata,
+    detection?: DetectionParams,
   ): Promise<Collectible[]> {
+    // TODO: Remove unused return
     const releaseLock = await this.mutex.acquire();
     try {
       address = toChecksumHexAddress(address);
-      const { allCollectibles, collectibles } = this.state;
-      const { chainId, selectedAddress } = this.config;
+      const { allCollectibles } = this.state;
+      let chainId, selectedAddress;
+
+      if (detection) {
+        chainId = detection.chainId;
+        selectedAddress = detection.userAddress;
+      } else {
+        chainId = this.config.chainId;
+        selectedAddress = this.config.selectedAddress;
+      }
+
+      const collectibles = allCollectibles[selectedAddress]?.[chainId] || [];
+
       const existingEntry: Collectible | undefined = collectibles.find(
         (collectible) =>
           collectible.address.toLowerCase() === address.toLowerCase() &&
           collectible.tokenId === tokenId,
       );
-      /* istanbul ignore next */
-      collectibleMetadata =
-        collectibleMetadata ||
-        (await this.getCollectibleInformation(address, tokenId));
 
       if (existingEntry) {
         const differentMetadata = compareCollectiblesMetadata(
@@ -398,6 +525,7 @@ export class CollectiblesController extends BaseController<
           existingEntry,
         );
         if (differentMetadata) {
+          // TODO: Switch to indexToUpdate
           const indexToRemove = collectibles.findIndex(
             (collectible) =>
               collectible.address.toLowerCase() === address.toLowerCase() &&
@@ -429,7 +557,6 @@ export class CollectiblesController extends BaseController<
       };
       this.update({
         allCollectibles: newAllCollectibles,
-        collectibles: newCollectibles,
       });
       return newCollectibles;
     } finally {
@@ -441,18 +568,31 @@ export class CollectiblesController extends BaseController<
    * Adds a collectible contract to the stored collectible contracts list.
    *
    * @param address - Hex address of the collectible contract.
-   * @param detection - Whether the collectible is manually added or auto-detected.
+   * @param detection - The chain ID and address of the currently selected network and account at the moment the collectible was detected.
    * @returns Promise resolving to the current collectible contracts list.
    */
   private async addCollectibleContract(
     address: string,
-    detection?: boolean,
+    detection?: DetectionParams,
   ): Promise<CollectibleContract[]> {
     const releaseLock = await this.mutex.acquire();
     try {
       address = toChecksumHexAddress(address);
-      const { allCollectibleContracts, collectibleContracts } = this.state;
-      const { chainId, selectedAddress } = this.config;
+      const { allCollectibleContracts } = this.state;
+
+      let chainId, selectedAddress;
+
+      if (detection) {
+        chainId = detection.chainId;
+        selectedAddress = detection.userAddress;
+      } else {
+        chainId = this.config.chainId;
+        selectedAddress = this.config.selectedAddress;
+      }
+
+      const collectibleContracts =
+        allCollectibleContracts[selectedAddress]?.[chainId] || [];
+
       const existingEntry = collectibleContracts.find(
         (collectibleContract) =>
           collectibleContract.address.toLowerCase() === address.toLowerCase(),
@@ -463,25 +603,26 @@ export class CollectiblesController extends BaseController<
       const contractInformation = await this.getCollectibleContractInformation(
         address,
       );
+
       const {
         asset_contract_type,
         created_date,
-        name,
         schema_name,
         symbol,
         total_supply,
         description,
         external_link,
-        image_url,
+        collection: { name, image_url },
       } = contractInformation;
       // If being auto-detected opensea information is expected
-      // Oherwise at least name and symbol from contract is needed
+      // Otherwise at least name and symbol from contract is needed
       if (
-        (detection && !image_url) ||
+        (detection && !name) ||
         Object.keys(contractInformation).length === 0
       ) {
         return collectibleContracts;
       }
+
       /* istanbul ignore next */
       const newEntry: CollectibleContract = Object.assign(
         {},
@@ -490,7 +631,8 @@ export class CollectiblesController extends BaseController<
         name && { name },
         image_url && { logo: image_url },
         symbol && { symbol },
-        total_supply !== null && { totalSupply: total_supply },
+        total_supply !== null &&
+          typeof total_supply !== 'undefined' && { totalSupply: total_supply },
         asset_contract_type && { assetContractType: asset_contract_type },
         created_date && { createdDate: created_date },
         schema_name && { schemaName: schema_name },
@@ -510,7 +652,6 @@ export class CollectiblesController extends BaseController<
       };
       this.update({
         allCollectibleContracts: newAllCollectibleContracts,
-        collectibleContracts: newCollectibleContracts,
       });
       return newCollectibleContracts;
     } finally {
@@ -526,12 +667,13 @@ export class CollectiblesController extends BaseController<
    */
   private removeAndIgnoreIndividualCollectible(
     address: string,
-    tokenId: number,
+    tokenId: string,
   ) {
     address = toChecksumHexAddress(address);
-    const { allCollectibles, collectibles, ignoredCollectibles } = this.state;
+    const { allCollectibles, ignoredCollectibles } = this.state;
     const { chainId, selectedAddress } = this.config;
     const newIgnoredCollectibles = [...ignoredCollectibles];
+    const collectibles = allCollectibles[selectedAddress]?.[chainId] || [];
     const newCollectibles = collectibles.filter((collectible) => {
       if (
         collectible.address.toLowerCase() === address.toLowerCase() &&
@@ -556,7 +698,6 @@ export class CollectiblesController extends BaseController<
     };
     this.update({
       allCollectibles: newAllCollectibles,
-      collectibles: newCollectibles,
       ignoredCollectibles: newIgnoredCollectibles,
     });
   }
@@ -567,10 +708,11 @@ export class CollectiblesController extends BaseController<
    * @param address - Hex address of the collectible contract.
    * @param tokenId - Token identifier of the collectible.
    */
-  private removeIndividualCollectible(address: string, tokenId: number) {
+  private removeIndividualCollectible(address: string, tokenId: string) {
     address = toChecksumHexAddress(address);
-    const { allCollectibles, collectibles } = this.state;
+    const { allCollectibles } = this.state;
     const { chainId, selectedAddress } = this.config;
+    const collectibles = allCollectibles[selectedAddress]?.[chainId] || [];
     const newCollectibles = collectibles.filter(
       (collectible) =>
         !(
@@ -589,7 +731,6 @@ export class CollectiblesController extends BaseController<
     };
     this.update({
       allCollectibles: newAllCollectibles,
-      collectibles: newCollectibles,
     });
   }
 
@@ -601,8 +742,11 @@ export class CollectiblesController extends BaseController<
    */
   private removeCollectibleContract(address: string): CollectibleContract[] {
     address = toChecksumHexAddress(address);
-    const { allCollectibleContracts, collectibleContracts } = this.state;
+    const { allCollectibleContracts } = this.state;
     const { chainId, selectedAddress } = this.config;
+    const collectibleContracts =
+      allCollectibleContracts[selectedAddress]?.[chainId] || [];
+
     const newCollectibleContracts = collectibleContracts.filter(
       (collectibleContract) =>
         !(collectibleContract.address.toLowerCase() === address.toLowerCase()),
@@ -619,7 +763,6 @@ export class CollectiblesController extends BaseController<
     };
     this.update({
       allCollectibleContracts: newAllCollectibleContracts,
-      collectibleContracts: newCollectibleContracts,
     });
     return newCollectibleContracts;
   }
@@ -645,6 +788,12 @@ export class CollectiblesController extends BaseController<
 
   private getCollectibleTokenURI: AssetsContractController['getCollectibleTokenURI'];
 
+  private getOwnerOf: AssetsContractController['getOwnerOf'];
+
+  private balanceOfERC1155Collectible: AssetsContractController['balanceOfERC1155Collectible'];
+
+  private uriERC1155Collectible: AssetsContractController['uriERC1155Collectible'];
+
   /**
    * Creates a CollectiblesController instance.
    *
@@ -653,7 +802,10 @@ export class CollectiblesController extends BaseController<
    * @param options.onNetworkStateChange - Allows subscribing to network controller state changes.
    * @param options.getAssetName - Gets the name of the asset at the given address.
    * @param options.getAssetSymbol - Gets the symbol of the asset at the given address.
-   * @param options.getCollectibleTokenURI - Gets the URI of the NFT at the given address, with the given ID.
+   * @param options.getCollectibleTokenURI - Gets the URI of the ERC721 token at the given address, with the given ID.
+   * @param options.getOwnerOf - Get the owner of a ERC-721 collectible.
+   * @param options.balanceOfERC1155Collectible - Gets balance of a ERC-1155 collectible.
+   * @param options.uriERC1155Collectible - Gets the URI of the ERC1155 token at the given address, with the given ID.
    * @param config - Initial options used to configure this controller.
    * @param state - Initial state to set on this controller.
    */
@@ -664,6 +816,9 @@ export class CollectiblesController extends BaseController<
       getAssetName,
       getAssetSymbol,
       getCollectibleTokenURI,
+      getOwnerOf,
+      balanceOfERC1155Collectible,
+      uriERC1155Collectible,
     }: {
       onPreferencesStateChange: (
         listener: (preferencesState: PreferencesState) => void,
@@ -674,6 +829,9 @@ export class CollectiblesController extends BaseController<
       getAssetName: AssetsContractController['getAssetName'];
       getAssetSymbol: AssetsContractController['getAssetSymbol'];
       getCollectibleTokenURI: AssetsContractController['getCollectibleTokenURI'];
+      getOwnerOf: AssetsContractController['getOwnerOf'];
+      balanceOfERC1155Collectible: AssetsContractController['balanceOfERC1155Collectible'];
+      uriERC1155Collectible: AssetsContractController['uriERC1155Collectible'];
     },
     config?: Partial<BaseConfig>,
     state?: Partial<CollectiblesState>,
@@ -683,40 +841,32 @@ export class CollectiblesController extends BaseController<
       networkType: MAINNET,
       selectedAddress: '',
       chainId: '',
+      ipfsGateway: IPFS_DEFAULT_GATEWAY_URL,
+      openSeaEnabled: false,
+      useIPFSSubdomains: true,
     };
 
     this.defaultState = {
       allCollectibleContracts: {},
       allCollectibles: {},
-      collectibleContracts: [],
-      collectibles: [],
       ignoredCollectibles: [],
     };
     this.initialize();
     this.getAssetName = getAssetName;
     this.getAssetSymbol = getAssetSymbol;
     this.getCollectibleTokenURI = getCollectibleTokenURI;
-    onPreferencesStateChange(({ selectedAddress }) => {
-      const { allCollectibleContracts, allCollectibles } = this.state;
-      const { chainId } = this.config;
-      this.configure({ selectedAddress });
-      this.update({
-        collectibleContracts:
-          allCollectibleContracts[selectedAddress]?.[chainId] || [],
-        collectibles: allCollectibles[selectedAddress]?.[chainId] || [],
-      });
-    });
+    this.getOwnerOf = getOwnerOf;
+    this.balanceOfERC1155Collectible = balanceOfERC1155Collectible;
+    this.uriERC1155Collectible = uriERC1155Collectible;
+    onPreferencesStateChange(
+      ({ selectedAddress, ipfsGateway, openSeaEnabled }) => {
+        this.configure({ selectedAddress, ipfsGateway, openSeaEnabled });
+      },
+    );
 
     onNetworkStateChange(({ provider }) => {
-      const { allCollectibleContracts, allCollectibles } = this.state;
-      const { selectedAddress } = this.config;
       const { chainId } = provider;
       this.configure({ chainId });
-      this.update({
-        collectibleContracts:
-          allCollectibleContracts[selectedAddress]?.[chainId] || [],
-        collectibles: allCollectibles[selectedAddress]?.[chainId] || [],
-      });
     });
   }
 
@@ -730,19 +880,74 @@ export class CollectiblesController extends BaseController<
   }
 
   /**
+   * Checks the ownership of a ERC-721 or ERC-1155 collectible for a given address.
+   *
+   * @param ownerAddress - User public address.
+   * @param collectibleAddress - Collectible contract address.
+   * @param collectibleId - Collectible token ID.
+   * @returns Promise resolving the collectible ownership.
+   */
+  async isCollectibleOwner(
+    ownerAddress: string,
+    collectibleAddress: string,
+    collectibleId: string,
+  ): Promise<boolean> {
+    // Checks the ownership for ERC-721.
+    try {
+      const owner = await this.getOwnerOf(collectibleAddress, collectibleId);
+      return ownerAddress.toLowerCase() === owner.toLowerCase();
+      // eslint-disable-next-line no-empty
+    } catch {
+      // Ignore ERC-721 contract error
+    }
+
+    // Checks the ownership for ERC-1155.
+    try {
+      const balance = await this.balanceOfERC1155Collectible(
+        ownerAddress,
+        collectibleAddress,
+        collectibleId,
+      );
+      return balance > 0;
+      // eslint-disable-next-line no-empty
+    } catch {
+      // Ignore ERC-1155 contract error
+    }
+
+    throw new Error(
+      'Unable to verify ownership. Probably because the standard is not supported or the chain is incorrect.',
+    );
+  }
+
+  /**
+   * Verifies currently selected address owns entered collectible address/tokenId combo and
+   * adds the collectible and respective collectible contract to the stored collectible and collectible contracts lists.
+   *
+   * @param address - Hex address of the collectible contract.
+   * @param tokenId - The collectible identifier.
+   */
+  async addCollectibleVerifyOwnership(address: string, tokenId: string) {
+    const { selectedAddress } = this.config;
+    if (!(await this.isCollectibleOwner(selectedAddress, address, tokenId))) {
+      throw new Error('This collectible is not owned by the user');
+    }
+    await this.addCollectible(address, tokenId);
+  }
+
+  /**
    * Adds a collectible and respective collectible contract to the stored collectible and collectible contracts lists.
    *
    * @param address - Hex address of the collectible contract.
    * @param tokenId - The collectible identifier.
    * @param collectibleMetadata - Collectible optional metadata.
-   * @param detection - Whether the collectible is manually added or autodetected.
+   * @param detection - The chain ID and address of the currently selected network and account at the moment the collectible was detected.
    * @returns Promise resolving to the current collectible list.
    */
   async addCollectible(
     address: string,
-    tokenId: number,
+    tokenId: string,
     collectibleMetadata?: CollectibleMetadata,
-    detection?: boolean,
+    detection?: DetectionParams,
   ) {
     address = toChecksumHexAddress(address);
     const newCollectibleContracts = await this.addCollectibleContract(
@@ -764,6 +969,7 @@ export class CollectiblesController extends BaseController<
         address,
         tokenId,
         collectibleMetadata,
+        detection,
       );
     }
   }
@@ -774,10 +980,12 @@ export class CollectiblesController extends BaseController<
    * @param address - Hex address of the collectible contract.
    * @param tokenId - Token identifier of the collectible.
    */
-  removeCollectible(address: string, tokenId: number) {
+  removeCollectible(address: string, tokenId: string) {
     address = toChecksumHexAddress(address);
     this.removeIndividualCollectible(address, tokenId);
-    const { collectibles } = this.state;
+    const { allCollectibles } = this.state;
+    const { chainId, selectedAddress } = this.config;
+    const collectibles = allCollectibles[selectedAddress]?.[chainId] || [];
     const remainingCollectible = collectibles.find(
       (collectible) =>
         collectible.address.toLowerCase() === address.toLowerCase(),
@@ -793,10 +1001,12 @@ export class CollectiblesController extends BaseController<
    * @param address - Hex address of the collectible contract.
    * @param tokenId - Token identifier of the collectible.
    */
-  removeAndIgnoreCollectible(address: string, tokenId: number) {
+  removeAndIgnoreCollectible(address: string, tokenId: string) {
     address = toChecksumHexAddress(address);
     this.removeAndIgnoreIndividualCollectible(address, tokenId);
-    const { collectibles } = this.state;
+    const { allCollectibles } = this.state;
+    const { chainId, selectedAddress } = this.config;
+    const collectibles = allCollectibles[selectedAddress]?.[chainId] || [];
     const remainingCollectible = collectibles.find(
       (collectible) =>
         collectible.address.toLowerCase() === address.toLowerCase(),

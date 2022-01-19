@@ -6,6 +6,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [22.0.0]
+### Added
+- **BREAKING**: Change IPFS URL generation to use subdomains and cidV1s over cidV0s, in order to enhance origin based security in our use of IPFS assets ([#655](https://github.com/MetaMask/controllers/pull/655))
+ - Consumers using an IPFS gateway(s) which does not support IPFS subdomain formats will need to set the new config value 'useIPFSSubdomains' on CollectiblesController to false in order to have continued IPFS resolution support.
+
+### Removed
+- **BREAKING**: remove chainid normalization ([#651](https://github.com/MetaMask/controllers/pull/651))
+   - This is breaking for anyone who adapted consumption of CollectiblesController to make use of v21.0.0. The chainId in the collectibles state shape is no longer normalized to decimal. 
+
+### Fixed
+- Fix collectibles collection images ([#650](https://github.com/MetaMask/controllers/pull/650))
+
+
+## [21.0.1]
+### Fixed
+- Fix issue where chainId key in AllCollectibles & AllCollectibleContracts is formatted differently in manual collectible add and detection add flows. ([#648](https://github.com/MetaMask/controllers/pull/648))
+
+## [21.0.0]
+### Added
+- **BREAKING**: Add openSeaEnabled preference ([#645](https://github.com/MetaMask/controllers/pull/645))
+ - Consumers of the collectibleDetectionController and collectibleController who wish to continue use of OpenSea's API and AutoDetection will either need to configure openSeaEnabled to true after instantiating the controller now or expose a toggle for users to change the openSeaEnabled state in the preferences controller.
+
+### Changed
+- Change expected shape of OpenSea contract API to use collections ([#628](https://github.com/MetaMask/controllers/pull/628))
+- Modify requirements for adding OpenSea detected contract ([#644](https://github.com/MetaMask/controllers/pull/644))
+
+### Removed
+- **BREAKING**: Add detection params (userAddress, chainId) and remove duplicate source of truth ([#636](https://github.com/MetaMask/controllers/pull/636))
+ - Both collectibles and collectibleContracts are removed from CollectiblesController state.
+  - Consumers who use these pieces of state will need to migrate to use the AllCollectibles and AllCollectiblesContracts state instead.
+
+## [20.1.0]
+### Added
+- Add new method `addCollectibleVerifyOwnership` to CollectiblesController ([#635](https://github.com/MetaMask/controllers/pull/635))
+- Add setting in PreferencesController to enable/disable collectible autoDetection and check against it in CollectibleDetectionController ([#638](https://github.com/MetaMask/controllers/pull/638))
+
+### Changed
+- Use user preferred ipfs gateway, as set in PreferencesController, to resolve ipfs based assets in CollectiblesController ([#637](https://github.com/MetaMask/controllers/pull/637))
+
+## [20.0.0]
+### Removed
+- **BREAKING**: Remove polling start call in detection controllers' constructors ([#629](https://github.com/MetaMask/controllers/pull/629))
+  - Consumers of either of the TokenDetection and CollectibleDetection controllers who wish to immediately start polling upon instantiation will need to call the start method on the controller immediately after instantiation.
+- Remove ApprovalController.has signature overloads ([#624](https://github.com/MetaMask/controllers/pull/624))
+
+## [19.0.0]
+### Changed
+- **BREAKING**: Split AssetsDetectionController into CollectiblesDetectionController and TokenDetectionController ([#619](https://github.com/MetaMask/controllers/pull/619))
+  - Consumers of the AssetsDetectionController will have to now import both TokenDetectionController and CollectibleDetectionController and split up the calling of any methods accordingly.
+- **BREAKING**: Set the `CurrencyRateController` property `conversionDate` to `null` if fetching the data fails. ([#621](https://github.com/MetaMask/controllers/pull/621))
+  - Consumers of the `CurrencyRateController` will need to ensure their code anticipates that `conversionDate` will sometimes be set to `null`.
+
+## [18.0.0]
+### Added
+- **BREAKING**: ERC1155 support ([#615](https://github.com/MetaMask/controllers/pull/615))
+  -  `CollectiblesController` requires `getOwnerOf`, `balanceOfERC1155Collectible` and `uriERC1155Collectible` properties in the constructor which are methods from `AssetsContractController`.
+- Add support for custom networks by querying the blockchain as default and add support for IPFS metadata URIs ([#616](https://github.com/MetaMask/controllers/pull/616))
+
+### Changed
+- Bump @metamask/contract-metadata from 1.29.0 to 1.30.0 ([#607](https://github.com/MetaMask/controllers/pull/607))
+
 ## [17.0.0]
 ### Added
 - Add client id header to GasFeeController ([#597](https://github.com/MetaMask/controllers/pull/597))
@@ -393,7 +454,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Remove shapeshift controller (#209)
 
-[Unreleased]: https://github.com/MetaMask/controllers/compare/v17.0.0...HEAD
+[Unreleased]: https://github.com/MetaMask/controllers/compare/v22.0.0...HEAD
+[22.0.0]: https://github.com/MetaMask/controllers/compare/v21.0.1...v22.0.0
+[21.0.1]: https://github.com/MetaMask/controllers/compare/v21.0.0...v21.0.1
+[21.0.0]: https://github.com/MetaMask/controllers/compare/v20.1.0...v21.0.0
+[20.1.0]: https://github.com/MetaMask/controllers/compare/v20.0.0...v20.1.0
+[20.0.0]: https://github.com/MetaMask/controllers/compare/v19.0.0...v20.0.0
+[19.0.0]: https://github.com/MetaMask/controllers/compare/v18.0.0...v19.0.0
+[18.0.0]: https://github.com/MetaMask/controllers/compare/v17.0.0...v18.0.0
 [17.0.0]: https://github.com/MetaMask/controllers/compare/v16.0.0...v17.0.0
 [16.0.0]: https://github.com/MetaMask/controllers/compare/v15.1.0...v16.0.0
 [15.1.0]: https://github.com/MetaMask/controllers/compare/v15.0.2...v15.1.0

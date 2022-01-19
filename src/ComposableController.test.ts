@@ -106,6 +106,15 @@ describe('ComposableController', () => {
         getCollectibleTokenURI: assetContractController.getCollectibleTokenURI.bind(
           assetContractController,
         ),
+        getOwnerOf: assetContractController.getOwnerOf.bind(
+          assetContractController,
+        ),
+        balanceOfERC1155Collectible: assetContractController.balanceOfERC1155Collectible.bind(
+          assetContractController,
+        ),
+        uriERC1155Collectible: assetContractController.uriERC1155Collectible.bind(
+          assetContractController,
+        ),
       });
       const tokensController = new TokensController({
         onPreferencesStateChange: (listener) =>
@@ -128,8 +137,6 @@ describe('ComposableController', () => {
         CollectiblesController: {
           allCollectibleContracts: {},
           allCollectibles: {},
-          collectibleContracts: [],
-          collectibles: [],
           ignoredCollectibles: [],
         },
         TokensController: {
@@ -156,6 +163,8 @@ describe('ComposableController', () => {
           lostIdentities: {},
           selectedAddress: '',
           useStaticTokenList: false,
+          useCollectibleDetection: false,
+          openSeaEnabled: false,
         },
       });
     });
@@ -176,6 +185,15 @@ describe('ComposableController', () => {
           assetContractController,
         ),
         getCollectibleTokenURI: assetContractController.getCollectibleTokenURI.bind(
+          assetContractController,
+        ),
+        getOwnerOf: assetContractController.getOwnerOf.bind(
+          assetContractController,
+        ),
+        balanceOfERC1155Collectible: assetContractController.balanceOfERC1155Collectible.bind(
+          assetContractController,
+        ),
+        uriERC1155Collectible: assetContractController.uriERC1155Collectible.bind(
           assetContractController,
         ),
       });
@@ -199,8 +217,6 @@ describe('ComposableController', () => {
         allCollectibleContracts: {},
         allCollectibles: {},
         allTokens: {},
-        collectibleContracts: [],
-        collectibles: [],
         ensEntries: {},
         featureFlags: {},
         frequentRpcList: [],
@@ -216,6 +232,8 @@ describe('ComposableController', () => {
         provider: { type: 'mainnet', chainId: NetworksChainId.mainnet },
         selectedAddress: '',
         useStaticTokenList: false,
+        useCollectibleDetection: false,
+        openSeaEnabled: false,
         suggestedAssets: [],
         tokens: [],
       });

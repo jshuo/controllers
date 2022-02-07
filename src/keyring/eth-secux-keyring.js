@@ -126,10 +126,9 @@ export class SecuxKeyring extends EventEmitter {
   }
 
   async getAccounts() {
-    console.log('getAccounts')
+    console.log('eth-secux-keyring:: getAccounts')
     const address = await SecuxETH.getAddress(this.device, this.hdPath);
     this.accounts = [address];
-    console.log(this.accounts.slice())
     // return this.accounts.slice()
     return Promise.resolve(this.accounts.slice());
   }

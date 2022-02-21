@@ -9,6 +9,8 @@ const keyringType = 'Secux Hardware';
 const pathBase = 'm';
 const MAX_INDEX = 1000;
 const DELAY_BETWEEN_POPUPS = 1000;
+const AVAX_TESTNET_CHAINID = 43113;
+const AVAX_MAINNET_CHAINID = 43114;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,7 +45,7 @@ export class SecuxKeyring extends EventEmitter {
       unlockedAccount: this.unlockedAccount,
     });
   }
-  
+
   deserialize(opts = {}) {
     this.hdPath = opts.hdPath || hdPathString;
     this.accounts = opts.accounts || [];
@@ -148,22 +150,42 @@ export class SecuxKeyring extends EventEmitter {
   async signTransaction(address, tx) {
     const txData = tx.toJSON();
     txData.type = tx.type;
+    let response;
 
-    const response = await SecuxETH.signTransaction(
-      this.device,
-      this.hdPath,
-      {
-        chainId: txData.chainId,
-        nonce: txData.nonce,
-        maxPriorityFeePerGas: txData.maxPriorityFeePerGas,
-        maxFeePerGas: txData.maxFeePerGas,
-        gasLimit: txData.gasLimit,
-        to: txData.to,
-        value: txData.value,
-        accessList: txData.accessList,
-        data: txData.data
-      }
-    );
+    if (tx.common._chainParams.chainId == AVAX_TESTNET_CHAINID || 
+       tx.common._chainParams.chainId == AVAX_MAINNET_CHAINID) {
+
+        response = await SecuxETH.signTransaction(
+        this.device,
+        this.hdPath,
+        {
+            chainId: tx.common._chainParams.chainId,
+            nonce:txData.nonce,
+            gasPrice: txData.gasPrice,
+            gasLimit: txData.gasLimit,
+            to: txData.to,
+            value?: txData.value
+        }
+      );
+
+    } else {
+
+        response = await SecuxETH.signTransaction(
+        this.device,
+        this.hdPath,
+        {
+          chainId: txData.chainId,
+          nonce: txData.nonce,
+          maxPriorityFeePerGas: txData.maxPriorityFeePerGas,
+          maxFeePerGas: txData.maxFeePerGas,
+          gasLimit: txData.gasLimit,
+          to: txData.to,
+          value: txData.value,
+          accessList: txData.accessList,
+          data: txData.data
+        }
+      );
+    }
 
     txData.r = response.signature.slice(0, 32);
     txData.s = response.signature.slice(32, 64);
@@ -184,7 +206,7 @@ export class SecuxKeyring extends EventEmitter {
 
     console.log(newOrMutatedTx.getSenderAddress().toString('hex'))
     console.log(addressSignedWith)
-    
+
     if (addressSignedWith !== correctAddress) {
       throw new Error("signature doesn't match the right address");
     }
